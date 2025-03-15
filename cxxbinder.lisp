@@ -1,211 +1,14 @@
 (in-package :cl-user)
 
-(defpackage :clang
+(defpackage :cxxbinder
   (:use :cl :noffi))
 
-(in-package :clang)
+(defpackage :null)
+
+(in-package :cxxbinder)
 
 (defun show (thing)
   (noffi::find-identifier-declaration thing))
-
-(defvar *verbosity* 0)
-(defvar *public?* :unset)
-(defvar *base-type* nil)
-(defvar *overloads* :unset)
-(defvar *handle-type?* nil)
-(defvar *structs* (make-hash-table :test #'equalp))
-(defvar *typedefs* (make-hash-table :test #'equalp))
-(defvar *lisp-file* :error)
-(defvar *module*)
-(defvar *abi*)
-(defvar *ffi*)
-(defvar *pass*)
-(defvar *template-types* nil)
-(defvar *current-template-type* nil)
-(defvar *done-templates* (make-hash-table :test #'equalp))
-(defvar *defining-struct?* nil)
-(defvar *struct-decl* :error)
-(defvar *field-stack* nil)
-(defvar *template-arg-list-stack* nil)
-(defvar *template-definition* :error)
-(defvar *namespace-prefix* (noffi::cintern ""))
-(defvar *access-specifier* :error)
-
-;; a c-name symbol is a c/c++ name string interned in the noffi-c package
-
-;; a reverse order list of c-name symbols showing the order type declarations should be dumped
-(defvar *type-ordering* ())
-
-;; table of typedefs, struct defs & class decls, keyed by c-name symbol
-(defvar *type-declarations* (make-hash-table :test #'equalp))
-
-(defvar *types* (make-hash-table :test #'equalp))
-
-;; table of template definitions keyed by c-name symbol
-(defvar *template-definitions* (make-hash-table :test #'equalp)) ;; class-templates, function-templates etc
-
-;; a c/c++ typedef
-;; name is a c/c++ name symbol, interned in the noffi-c package
-;; type is a noffi type
-(defstruct type-definition
-  (name nil)
-  (namespace nil)
-  (type nil))
-
-(defstruct clang-type
-  (name nil))
-
-(defstruct (primitive-c-type (:include clang-type)))
-
-(defstruct (array-vector-or-complex-type (:include clang-type))
-  (element-type nil))
-
-(defstruct (array-type (:include array-vector-or-complex-type)))
-
-(defstruct (reference-type (:include clang-type))
-  (pointee-type))
-
-(defstruct (invalid-type (:include clang-type)))
-(defstruct (unexposed-type (:include clang-type)))
-(defstruct (void-type (:include primitive-c-type)))
-(defstruct (bool-type (:include primitive-c-type)))
-(defstruct (char-u-type (:include primitive-c-type)))
-(defstruct (uchar-type (:include primitive-c-type)))
-(defstruct (char16-type (:include primitive-c-type)))
-(defstruct (char32-type (:include primitive-c-type)))
-(defstruct (ushort-type (:include primitive-c-type)))
-(defstruct (uint-type (:include primitive-c-type)))
-(defstruct (ulong-type (:include primitive-c-type)))
-(defstruct (ulonglong-type (:include primitive-c-type)))
-(defstruct (uint128-type (:include primitive-c-type)))
-(defstruct (char-s-type (:include primitive-c-type)))
-(defstruct (schar-type (:include primitive-c-type)))
-(defstruct (wchar-type (:include primitive-c-type)))
-(defstruct (short-type (:include primitive-c-type)))
-(defstruct (int-type (:include primitive-c-type)))
-(defstruct (long-type (:include primitive-c-type)))
-(defstruct (longlong-type (:include primitive-c-type)))
-(defstruct (int128-type (:include primitive-c-type)))
-(defstruct (float-type (:include primitive-c-type)))
-(defstruct (double-type (:include primitive-c-type)))
-(defstruct (long-double-type (:include primitive-c-type)))
-(defstruct (nullptr-type (:include clang-type)))
-(defstruct (overload-type (:include clang-type)))
-(defstruct (dependent-type (:include clang-type)))
-(defstruct (objc-id-type (:include clang-type)))
-(defstruct (objc-class-type (:include clang-type)))
-(defstruct (objc-sel-type (:include clang-type)))
-(defstruct (float128-type (:include clang-type)))
-(defstruct (half-type (:include clang-type)))
-(defstruct (float16-type (:include clang-type)))
-(defstruct (short-accum-type (:include clang-type)))
-(defstruct (accum-type (:include clang-type)))
-(defstruct (long-accum-type (:include clang-type)))
-(defstruct (ushort-accum-type (:include clang-type)))
-(defstruct (uaccum-type (:include clang-type)))
-(defstruct (ulong-accum-type (:include clang-type)))
-(defstruct (bfloat16-type (:include clang-type)))
-(defstruct (ibm128-type (:include clang-type)))
-(defstruct (complex-type (:include array-vector-or-complex-type)))
-(defstruct (pointer-type (:include clang-type))
-  (pointee-type nil))			 
-(defstruct (block-pointer-type (:include clang-type)))
-(defstruct (lvalue-reference-type (:include reference-type)))
-(defstruct (rvalue-reference-type (:include reference-type)))
-(defstruct (record-type (:include clang-type)))
-(defstruct (enum-type (:include clang-type)))
-(defstruct (typedef-type (:include clang-type)))
-(defstruct (objc-interface-type (:include clang-type)))
-(defstruct (objc-object-pointer-type (:include clang-type)))
-(defstruct (function-no-proto-type (:include clang-type)))
-(defstruct (function-proto-type (:include clang-type)))
-(defstruct (constant-array-type (:include array-type)))
-(defstruct (vector-type (:include array-vector-or-complex-type)))
-(defstruct (incomplete-array-type (:include array-type)))
-(defstruct (variable-array-type (:include array-type)))
-(defstruct (dependent-sized-array-type (:include array-type)))
-(defstruct (member-pointer-type (:include clang-type)))
-(defstruct (auto-type (:include clang-type)))
-(defstruct (elaborated-type (:include clang-type))
-  (named-type nil))
-
-
-(defvar *struct-declaration* :error)
-;; a c++ struct def
-;; fields are field-declarations in reverse-order
-;; base-types are symbols in the noffi-c package in reverse order
-;; methods are method-declarations in reverse order
-;; vtable-p is lisp boolean, telling whether this class (but not necessarily the base-types)
-;;  had a virtual method, qualifying it for a vtable pointer
-(defstruct struct-declaration
-  (name nil)
-  (namespace nil)
-  (base-types nil)
-  (fields nil)
-  (methods nil)
-  (vtable-p nil)
-  (size nil))
-
-;; a struct or class field
-;; name is c/c++ name of the field in the noffi-c package
-;; type is a noffi type
-(defstruct field-declaration
-  (name nil)
-  (type nil)
-  (bit-offset nil)
-  (access nil))
-
-;; a c++ class declaration
-(defstruct (class-declaration (:include struct-declaration)))
-
-;; an argument to a function or a class method, types are noffi types
-(defstruct function-argument
-  (name nil)
-  (type nil))
-
-;; a function declaration, return type is noffi type,
-;; name is a noffi-c package symbol of c/c++ name string
-;; arguments are function-arguments in reverse order
-(defstruct function-declaration
-  (name nil)
-  (return-type nil)
-  (mangled-name nil)
-  (arguments nil)
-  (num-args nil)
-  (variadic? nil)
-  (storage-kind nil))
-
-;; a c++ class method declaration
-(defstruct (method-declaration (:include function-declaration))
-  (class-name nil)
-  (virtual? nil)
-  (pure-virtual? nil)
-  (static? nil)
-  (constructor? nil)
-  (destructor? nil)
-  (access nil))
-
-
-;; a c++ class template definition
-(defstruct (class-template-definition (:include class-declaration))
-  (arguments nil))
-
-
-
-(defstruct struct-decl
-  (fwd-ref? nil)
-  (package? nil)
-  (fields? nil)
-  (methods? nil)
-  (vtable-p nil))
-
-
-
-(defstruct template-definition
-  (name nil)
-  (arguments nil)
-  (fields nil)
-  (methods nil))
 
 (defclass module () ())
 (defclass opencascade (module) ())
@@ -217,6 +20,1812 @@
 (defclass ffi () ())
 (defclass cffi (ffi) ())
 (defclass noffi (ffi) ())
+
+(defvar *verbosity* 0)
+(defvar *access-specifier* :error)
+(defvar *overloads* :unset)
+(defvar *lisp-file* :error)
+(defvar *module*)
+(defvar *abi*)
+(defvar *ffi*)
+(defvar *pass*)
+
+;; a c-name symbol is a c/c++ name string interned in the noffi-c package
+
+(defvar *declaration* :error)
+
+(defvar *visited* :error)
+(defvar *dependencies-table* :error)
+(defvar *dependencies-list* :error)
+
+(defvar *using-directives* :error)
+
+(defstruct named-declaration
+  (name nil)
+  (namespace nil)
+  (file nil)
+  (line nil)
+  (column nil)
+  (offset nil)
+  (punt nil))
+
+(defmethod compose-typename-3 ((thing (eql :int)))
+  "int")
+
+(defmethod compose-typename-3 ((thing (eql :unsigned-int)))
+  "unsigned int")
+
+(defmethod compose-typename-3 ((thing (eql :long)))
+  "long")
+
+(defmethod compose-typename-3 ((thing (eql :unsigned-long)))
+  "unsigned long")
+
+(defmethod compose-typename-3 ((thing (eql :long-long)))
+  "long long")
+
+(defmethod compose-typename-3 ((thing (eql :unsigned-long-long)))
+  "unsigned long long")
+
+(defmethod compose-typename-3 ((thing (eql :char)))
+  "char")
+
+(defmethod compose-typename-3 ((thing (eql :unsigned-char)))
+  "unsigned char")
+
+(defmethod compose-typename-3 ((thing (eql :short)))
+  "short")
+
+(defmethod compose-typename-3 ((thing (eql :unsigned-short)))
+  "unsigned short")
+
+(defmethod compose-typename-3 ((thing (eql :float)))
+  "float")
+
+(defmethod compose-typename-3 ((thing (eql :double)))
+  "double")
+
+(defmethod compose-typename-3 ((thing (eql '#_bool)))
+  "bool")
+
+(defmethod compose-typename-3 ((thing symbol)) ;; hack 
+  (symbol-name thing))
+
+(defmethod compose-typename-3 (thing)
+  (let ((ct (compose-typename thing)))
+    (if (consp ct)
+	(second ct)
+	ct)))
+
+(defmethod compose-typename ((thing symbol))
+  thing)
+
+(defmethod compose-typename ((thing list))
+  (cond ((type-name-type-p thing)
+	 (list :type-name (compose-typename (cadr thing))))
+	((template-type-p thing)
+	 (let ((name (compose-typename (cadr thing)))
+	       (arguments (mapcar #'(lambda (thing)
+				      (let ((ct (compose-typename-3 thing)))
+					(if (consp ct)
+					    (second ct)
+					    ct)))
+				  (remove-if #'(lambda (item)
+						 (or (null item)
+						     (and (consp item)
+							  (null (cdr item)))))
+					     (cddr thing)))))
+	   (list :type-name
+		 (noffi::cintern
+		  (format nil "~A<~{~A, ~}~A>" name (butlast arguments) (first (last arguments)))))))
+	((qualified-type-p thing)
+	 (noffi::cintern
+	  (format nil "~{~A::~}~A" (butlast (cdr thing)) (first (last thing)))))
+	((pointerish-type-p thing)
+	 (list (car thing) (compose-typename (cadr thing))))
+	((type-qualifier-type-p thing)
+	 (list :type-qualifier (cadr thing) (compose-typename (caddr thing))))))
+
+(defmethod compose-typename-1 ((named-declaration named-declaration) key)
+  (let* ((qualifiers (namespace-qualifiers (named-declaration-namespace named-declaration)))
+	 (qualified-string (format nil "~{~A::~}" qualifiers))
+	 (template-arguments (mapcar #'(lambda (thing)
+				      (let ((ct thing))
+					(if (consp ct)
+					    (second ct)
+					    ct)))
+				     (remove-if #'(lambda (item)
+					    (or (null item)
+						(and (consp item)
+						     (null (cdr item)))))
+					(mapcar #'(lambda (name)
+						    (cond ((null name) nil) ;; hack
+							  ((keywordp name)
+							   (compose-typename-3 name))
+							  ((type-name-type-p name)
+							   (if (null (cadr name))
+							       nil
+							       (compose-typename-3 (cadr name))))
+							  (t (let ((decl (dbg-find-decl name))) ;; hack.
+							       (when decl (compose-typename-3 decl))))))
+						(when (consp key)
+						  (cdr key))))))
+	 (name (if (consp key)
+		   (car key)
+		   key)))
+    
+    (noffi::cintern
+     (concatenate 'string qualified-string
+		  (if template-arguments
+		      (format nil "~A<~{~A, ~}~A>"
+			      name (butlast template-arguments) (first (last template-arguments)))
+		      (symbol-name name))))))
+
+(defmethod compose-template-name ((template-definition class-template-definition) arguments)
+  (let* ((qualifiers (namespace-qualifiers (named-declaration-namespace template-definition)))
+	 (qualified-string (format nil "~{~A::~}" qualifiers))
+	 (name (class-template-definition-name template-definition))
+	 (template-arguments (mapcar #'(lambda (thing)
+				      (let ((ct thing))
+					(if (consp ct)
+					    (second ct)
+					    ct)))
+				     (mapcar #'compose-typename-3 (remove-if #'(lambda (item)
+										 (or (null item)
+										     (and (consp item)
+											  (null (cdr item)))))
+									     arguments)))))
+
+    (noffi::cintern
+     (concatenate 'string qualified-string
+		  (if template-arguments
+		      (format nil "~A<~{~A, ~}~A>"
+			      name (butlast template-arguments) (first (last template-arguments)))
+		      (format nil "~A<>" name))))))
+
+    
+						
+	 
+
+(defmethod write-type-decl ((decl named-declaration) name (module module) (ffi noffi) abi stream)
+  (let ((decl (make-noffi-type-declaration decl name module abi)))
+    (when decl
+      (let ((*print-escape* nil)
+	    (*package* (find-package :null)))
+	(pprint decl stream)
+	(finish-output stream))
+      (terpri stream)
+      (terpri stream))))
+    
+
+(defvar *global-namespace*)
+(defvar *current-namespace*)
+
+(defstruct (namespace (:include named-declaration))
+  ;; declarations could be keyed on just one symbol
+  ;; or a list of symbols, in the case of a template name and it's arguments
+  (declarations (make-hash-table :test #'equalp))
+  (template-definitions (make-hash-table)))
+
+(defstruct (enum-declaration (:include named-declaration))
+  (enum-type nil)
+  (constants nil))
+
+(defmethod make-noffi-type-declaration ((decl enum-declaration) name (module module) abi)
+  (noffi::make-declaration :name name
+			   :type (enum-declaration-enum-type decl)))
+
+;; a c/c++ typedef
+;; name is a c/c++ name symbol, interned in the noffi-c package
+;; type is a noffi type
+(defstruct (type-definition (:include named-declaration))
+  (type nil))
+
+(defmethod make-noffi-type-declaration ((decl type-definition) name (module module) abi)
+  (noffi::make-declaration :name name
+			   :storage-class :typedef
+			   :type (compose-typename (type-definition-type decl))))
+
+(defmethod deep-copy ((thing type-definition))
+  (let ((copy (copy-type-definition thing)))
+    (setf (type-definition-type copy)
+	  (deep-copy (type-definition-type copy)))
+    copy))
+
+(defstruct (type-alias (:include named-declaration))
+  (type nil))
+
+(defmethod make-noffi-type-declaration ((decl type-alias) name (module module) abi)
+  )
+
+(defmethod make-noffi-type-declaration ((decl namespace) name (module module) abi)
+  )
+
+(defstruct (type-alias-template-decl (:include named-declaration))
+  (type-alias-decl nil))
+
+(defvar *type-alias-template-decl* :error)
+
+(defstruct clang-type
+  (name nil)
+  (cv-qualifiers nil))
+
+(defstruct (primitive-c-type (:include clang-type)))
+
+(defstruct (array-vector-or-complex-type (:include clang-type))
+  (element-type nil))
+
+(defstruct (array-type (:include array-vector-or-complex-type)))
+
+(defstruct (reference-type (:include clang-type))
+  (pointee-type))
+
+
+
+
+      
+(defmethod to-noffi-type :around ((thing clang-type))
+  (wrap-noffi-type (clang-type-cv-qualifiers thing) (call-next-method)))
+
+(defstruct (invalid-type (:include clang-type)))
+
+(defmethod deep-copy ((thing invalid-type))
+  (copy-invalid-type thing))
+
+(defmethod to-noffi-type ((thing invalid-type))
+  (list :type-name (invalid-type-name thing)))
+
+(defstruct (unexposed-type (:include clang-type)))
+
+(defmethod deep-copy ((thing unexposed-type))
+  (copy-unexposed-type thing))
+
+(defmethod to-noffi-type ((thing unexposed-type))
+  (list :type-name (unexposed-type-name thing)))
+
+(defstruct (void-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing void-type))
+  (copy-void-type thing))
+
+(defmethod mangle-type ((thing void-type) (abi msvc))
+  "X")
+
+(defmethod mangle-type ((thing void-type) (abi itanium))
+  "v")
+
+(defmethod mangle-type ((thing (eql :void)) (abi msvc))
+  "X")
+
+(defmethod mangle-type ((thing (eql :void)) (abi itanium))
+  "v")
+
+(defmethod to-noffi-type ((thing void-type))
+ :void)
+
+(defstruct (bool-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing bool-type))
+  (copy-bool-type thing))
+
+(defmethod mangle-type ((thing bool-type) (abi msvc))
+  "_N")
+
+(defmethod mangle-type ((thing bool-type) (abi itanium))
+  "b")
+
+(defmethod mangle-type ((thing (eql '#_bool)) (abi msvc))
+  "_N")
+
+(defmethod mangle-type ((thing (eql '#_bool)) (abi itanium))
+  "b")
+
+(defmethod to-noffi-type ((thing bool-type))
+  '(:type-name #_bool))
+
+(defstruct (char-u-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing char-u-type))
+  (copy-char-u-type thing))
+
+(defmethod to-noffi-type ((thing char-u-type))
+  :unsigned-char)
+
+(defstruct (uchar-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing uchar-type))
+  (copy-uchar-type thing))
+
+(defmethod mangle-type ((thing uchar-type) (abi msvc))
+  "E")
+
+(defmethod mangle-type ((thing uchar-type) (abi itanium))
+  "h")
+
+(defmethod mangle-type ((thing (eql :unsigned-char)) (abi msvc))
+  "E")
+
+(defmethod mangle-type ((thing (eql :unsigned-char)) (abi itanium))
+  "h")
+
+(defmethod to-noffi-type ((thing uchar-type))
+  :unsigned-char)
+
+(defstruct (char16-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing char16-type))
+  (copy-char16-type thing))
+
+(defmethod mangle-type ((thing char16-type) (abi msvc))
+  "F")
+
+(defmethod mangle-type ((thing char16-type) (abi itanium))
+  "s")
+
+(defmethod to-noffi-type ((thing char16-type))
+  '(:type-name #_char16))
+
+(defstruct (char32-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing char32-type))
+  (copy-char32-type thing))
+
+(defmethod to-noffi-type ((thing char32-type))
+  '(:type-name #_char32))
+
+(defstruct (ushort-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing ushort-type))
+  (copy-ushort-type thing))
+
+(defmethod mangle-type ((thing ushort-type) (abi msvc))
+  "G")
+
+(defmethod mangle-type ((thing ushort-type) (abi itanium))
+  "t")
+
+(defmethod mangle-type ((thing (eql :unsigned-short)) (abi msvc))
+  "G")
+
+(defmethod mangle-type ((thing (eql :unsigned-short)) (abi itanium))
+  "t")
+
+(defmethod to-noffi-type ((thing ushort-type))
+  :unsigned-short)
+
+(defstruct (uint-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing uint-type))
+  (copy-uint-type thing))
+
+(defmethod mangle-type ((thing uint-type) (abi msvc))
+  "I")
+
+(defmethod mangle-type ((thing uint-type) (abi itanium))
+  "j")
+
+(defmethod mangle-type ((thing (eql :unsigned-int)) (abi msvc))
+  "I")
+
+(defmethod mangle-type ((thing (eql :unsigned-int)) (abi itanium))
+  "j")
+
+(defmethod to-noffi-type ((thing uint-type))
+  :unsigned-int)
+
+(defstruct (ulong-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing ulong-type))
+  (copy-ulong-type thing))
+
+(defmethod mangle-type ((thing ulong-type) (abi msvc))
+  "K")
+
+(defmethod mangle-type ((thing ulong-type) (abi itanium))
+  "m")
+
+(defmethod mangle-type ((thing (eql :unsigned-long)) (abi msvc))
+  "K")
+
+(defmethod mangle-type ((thing (eql :unsigned-long)) (abi itanium))
+  "m")
+
+(defmethod to-noffi-type ((thing ulong-type))
+  :unsigned-long)
+
+(defstruct (ulonglong-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing ulonglong-type))
+  (copy-ulonglong-type thing))
+
+(defmethod mangle-type ((thing ulonglong-type) (abi msvc))
+  "_K")
+
+(defmethod mangle-type ((thing ulonglong-type) (abi itanium))
+  "y")
+
+(defmethod mangle-type ((thing (eql :unsigned-long-long)) (abi msvc))
+  "_K")
+
+(defmethod mangle-type ((thing (eql :unsigned-long-long)) (abi itanium))
+  "y")
+
+(defmethod to-noffi-type ((thing ulonglong-type))
+  :unsigned-long-long)
+
+(defstruct (uint128-type (:include primitive-c-type)))
+
+(defun is-128-bit-unsigned-clang-type (ctype)
+  (uint128-type-p ctype))
+
+(defmethod deep-copy ((thing uint128-type))
+  (copy-uint128-type thing))
+
+(defmethod to-noffi-type ((thing uint128-type))
+  '(:type-name #_uint128_t))
+
+(defstruct (char-s-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing char-s-type))
+  (copy-char-s-type thing))
+
+(defmethod mangle-type ((thing char-s-type) (abi msvc))
+  "C")
+
+(defmethod mangle-type ((thing char-s-type) (abi itanium))
+  "a")
+
+(defmethod to-noffi-type ((thing char-s-type))
+  :signed-char)
+
+(defstruct (schar-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing schar-type))
+  (copy-schar-type thing))
+
+(defmethod mangle-type ((thing schar-type) (abi msvc))
+  "C")
+
+(defmethod mangle-type ((thing schar-type) (abi itanium))
+  "a")
+
+(defmethod mangle-type ((thing (eql :signed-char)) (abi msvc))
+  "C")
+
+(defmethod mangle-type ((thing (eql :signed-char)) (abi itanium))
+  "a")
+
+(defmethod mangle-type ((thing (eql :char)) (abi msvc))
+  "D")
+
+(defmethod mangle-type ((thing (eql :char)) (abi itanium))
+  "c")
+
+(defmethod to-noffi-type ((thing schar-type))
+  :signed-char)
+
+(defstruct (wchar-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing wchar-type))
+  (copy-wchar-type thing))
+
+(defmethod mangle-type ((thing wchar-type) (abi msvc))
+  "_W")
+
+(defmethod mangle-type ((thing wchar-type) (abi itanium))
+  "w")
+
+(defmethod mangle-type ((thing (eql '#_wchar_t)) (abi msvc))
+  "_W")
+
+(defmethod mangle-type ((thing (eql '#_wchar_t)) (abi itanium))
+  "w")
+
+(defmethod to-noffi-type ((thing wchar-type))
+  '(:type-name #_wchar_t))
+
+(defstruct (short-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing short-type))
+  (copy-short-type thing))
+
+(defmethod mangle-type ((thing short-type) (abi msvc))
+  "F")
+
+(defmethod mangle-type ((thing short-type) (abi itanium))
+  "s")
+
+(defmethod mangle-type ((thing (eql :short)) (abi msvc))
+  "F")
+
+(defmethod mangle-type ((thing (eql :short)) (abi msvc))
+  "s")  
+
+(defmethod to-noffi-type ((thing short-type))
+  :short)
+
+(defstruct (int-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing int-type))
+  (copy-int-type thing))
+
+(defmethod mangle-type ((thing int-type) (abi msvc))
+  "H")
+
+(defmethod mangle-type ((thing int-type) (abi itanium))
+  "i")
+
+(defmethod mangle-type ((thing (eql :int)) (abi msvc))
+  "H")
+
+(defmethod mangle-type ((thing (eql :int)) (abi itanium))
+  "i")
+
+(defmethod to-noffi-type ((thing int-type))
+  :int)
+
+(defstruct (long-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing long-type))
+  (copy-long-type thing))
+
+(defmethod to-noffi-type ((thing long-type))
+  :long)
+
+(defstruct (longlong-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing longlong-type))
+  (copy-longlong-type thing))
+
+(defmethod mangle-type ((thing longlong-type) (abi msvc))
+  "_J")
+
+(defmethod mangle-type ((thing longlong-type) (abi itanium))
+  "x")
+
+(defmethod mangle-type ((thing (eql :long-long)) (abi msvc))
+  "_J")
+
+(defmethod mangle-type ((thing (eql :long-long)) (abi itanium))
+  "x")
+
+(defmethod to-noffi-type ((thing longlong-type))
+  :long-long)
+
+(defstruct (int128-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing int128-type))
+  (copy-int128-type thing))
+
+(defmethod to-noffi-type ((thing int128-type))
+  '(:type-name #_int128_t))
+
+(defstruct (float-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing float-type))
+  (copy-float-type thing))
+
+(defmethod mangle-type ((thing float-type) (abi msvc))
+  "M")
+
+(defmethod mangle-type ((thing float-type) (abi itanium))
+  "f")
+
+(defmethod mangle-type ((thing (eql :float)) (abi msvc))
+  "M")
+
+(defmethod mangle-type ((thing (eql :float)) (abi itanium))
+  "f")
+
+(defmethod to-noffi-type ((thing float-type))
+  :float)
+
+(defstruct (double-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing double-type))
+  (copy-double-type thing))
+
+(defmethod mangle-type ((thing double-type) (abi msvc))
+  "N")
+
+(defmethod mangle-type ((thing double-type) (abi itanium))
+  "d")
+
+(defmethod mangle-type ((thing (eql :double)) (abi msvc))
+  "N")
+
+(defmethod mangle-type ((thing (eql :double)) (abi itanium))
+  "d")
+
+(defmethod to-noffi-type ((thing double-type))
+  :double)
+
+(defstruct (long-double-type (:include primitive-c-type)))
+
+(defmethod deep-copy ((thing long-double-type))
+  (copy-long-double-type thing))
+
+(defmethod mangle-type ((thing long-double-type) (abi msvc))
+  "O")
+
+(defmethod mangle-type ((thing long-double-type) (abi itanium))
+  "e")
+
+(defmethod mangle-type ((thing (eql :long-double)) (abi msvc))
+  "O")
+
+(defmethod mangle-type ((thing (eql :long-double)) (abi itanium))
+  "e")
+
+(defmethod to-noffi-type ((thing long-double-type))
+  :long-double)
+
+(defstruct (nullptr-type (:include clang-type)))
+
+(defmethod deep-copy ((thing nullptr-type))
+  (copy-nullptr-type thing))
+
+(defstruct (overload-type (:include clang-type)))
+
+(defmethod deep-copy ((thing overload-type))
+  (copy-overload-type thing))
+
+(defstruct (dependent-type (:include clang-type)))
+
+(defmethod deep-copy ((thing dependent-type))
+  (copy-dependent-type thing))
+
+(defstruct (objc-id-type (:include clang-type)))
+
+(defmethod deep-copy ((thing objc-id-type))
+  (copy-objc-id-type thing))
+
+(defstruct (objc-class-type (:include clang-type)))
+
+(defmethod deep-copy ((thing objc-class-type))
+  (copy-objc-class-type thing))
+
+(defstruct (objc-sel-type (:include clang-type)))
+
+(defmethod deep-copy ((thing objc-sel-type))
+  (copy-objc-sel-type thing))
+
+(defstruct (float128-type (:include clang-type)))
+
+(defmethod deep-copy ((thing float128-type))
+  thing)
+
+(defmethod to-noffi-type ((thing float128-type))
+  '(:type-name #_float128))
+
+(defstruct (half-type (:include clang-type)))
+
+(defmethod deep-copy ((thing half-type))
+  thing)
+
+(defmethod to-noffi-type ((thing half-type))
+  '(:type-name #_half))
+
+(defstruct (float16-type (:include clang-type)))
+
+(defmethod mangle-type ((thing float16-type) (abi itanium))
+  "DF16_")			
+
+(defmethod deep-copy ((thing float16-type))
+  thing)
+
+(defmethod to-noffi-type ((thing float16-type))
+  '(:type-name #_float16))
+
+(defstruct (short-accum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing short-accum-type))
+  (copy-short-accum-type thing))
+
+(defstruct (accum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing accum-type))
+  (copy-accum-type thing))
+
+(defstruct (long-accum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing long-accum-type))
+  (copy-long-accum-type thing))
+
+(defstruct (ushort-accum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing ushort-accum-type))
+  (copy-ushort-accum-type thing))
+
+(defstruct (uaccum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing uaccum-type))
+  (copy-uaccum-type thing))
+
+(defstruct (ulong-accum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing ulong-accum-type))
+  (copy-ulong-accum-type thing))
+
+(defstruct (bfloat16-type (:include clang-type)))
+
+(defmethod deep-copy ((thing bfloat16-type))
+  thing)
+
+(defstruct (ibm128-type (:include clang-type)))
+
+(defmethod deep-copy ((thing ibm128-type))
+  (copy-ibm128-type thing))
+
+(defstruct (complex-type (:include array-vector-or-complex-type)))
+
+(defmethod deep-copy ((thing complex-type))
+  (let ((copy (copy-complex-type thing)))
+    (setf (complex-type-element-type copy)
+	  (deep-copy (complex-type-element-type copy)))
+    copy))
+
+(defmethod mangle-type ((thing complex-type) (abi itanium))
+  (concatenate 'string "C" (mangle-type (complex-type-element-type thing) abi)))
+
+(defmethod to-noffi-type ((thing complex-type))
+  (case (to-noffi-type (complex-type-element-type thing))
+    (:float :float-complex)
+    (:double :double-complex)
+    (:long-double :long-double-complex)
+    (t (error "cannot convert ~S to noffi type." thing))))
+
+(defstruct (pointer-type (:include clang-type))
+  (pointee-type nil))
+
+(defmethod deep-copy ((thing pointer-type))
+  (let ((copy (copy-pointer-type thing)))
+    (setf (pointer-type-pointee-type copy)
+	  (deep-copy (pointer-type-pointee-type copy)))
+    copy))
+
+
+(defmethod mangle-type ((thing pointer-type) (abi msvc))
+  (let ((type-qualifiers (pointer-type-cv-qualifiers thing))
+	(pointer-qualifiers '()))
+    (flet ((mangle-type-qualifiers ()
+	     (cond ((and (member :const type-qualifiers) (member :volatile type-qualifiers)) "D")
+		   ((member :volatile type-qualifiers) "C")
+		   ((member :const type-qualifiers) "B")
+		   (t "A")))
+	   (mangle-pointer-qualifiers ()
+	     (cond ((and (member :const pointer-qualifiers) (member :volatile pointer-qualifiers)) "S")
+		   ((member :volatile pointer-qualifiers) "R")
+		   ((member :const pointer-qualifiers) "Q")
+		   (t "P")))
+	   (mangle-restrict ()
+	     (cond ((member :restrict pointer-qualifiers) "I")
+		   (t nil))))
+      (concatenate 'string (mangle-pointer-qualifiers) "E" (mangle-restrict) (mangle-type-qualifiers)
+		   (mangle-type (pointer-type-pointee-type thing) abi)))))
+
+
+(defmethod mangle-type ((thing pointer-type) (abi itanium))
+  (let ((type-qualifiers (pointer-type-cv-qualifiers thing)))
+    (flet ((mangle-type-qualifiers ()
+	     (cond ((and (member :const type-qualifiers) (member :volatile type-qualifiers)) "VK")
+		   ((member :volatile type-qualifiers) "V")
+		   ((member :const type-qualifiers) "K")
+		   (t nil))))
+      (concatenate 'string (mangle-type-qualifiers)
+		   (mangle-type (pointer-type-pointee-type thing) abi)))))
+
+(defmethod mangle-type ((thing symbol) abi)
+  (copy-seq (symbol-name thing)))
+
+(defmethod mangle-type ((thing (eql '#__m64)) (abi msvc))
+  "_m64")
+
+(defmethod mangle-type ((thing (eql '#___m64)) (abi msvc))
+  "__m64")
+
+(defmethod mangle-type ((thing (eql '#__m128)) (abi msvc))
+  "_m128")
+
+(defmethod mangle-type ((thing (eql '#___m128)) (abi msvc))
+  "__m128")
+
+(defmethod mangle-type ((thing (eql '#__m128d)) (abi msvc))
+  "_m128d")
+
+(defmethod mangle-type ((thing (eql '#___m128d)) (abi msvc))
+  "__m128d")
+
+(defmethod mangle-type ((thing (eql '#__m128i)) (abi msvc))
+  "_m128i")
+
+(defmethod mangle-type ((thing (eql '#___m128i)) (abi msvc))
+  "__m128i")
+
+(defmethod mangle-type ((thing (eql '#__m256)) (abi msvc))
+  "_m256")
+
+(defmethod mangle-type ((thing (eql '#___m256)) (abi msvc))
+  "__m256")
+
+(defmethod mangle-type ((thing (eql '#__m256d)) (abi msvc))
+  "_m256d")
+
+(defmethod mangle-type ((thing (eql '#___m256d)) (abi msvc))
+  "__m256d")
+
+(defmethod mangle-type ((thing (eql '#__m256i)) (abi msvc))
+  "_m256i")
+
+(defmethod mangle-type ((thing (eql '#___m256i)) (abi msvc))
+  "__m256i")
+
+(defmethod mangle-type ((thing (eql '#__m512)) (abi msvc))
+  "_m512")
+
+(defmethod mangle-type ((thing (eql '#___m512)) (abi msvc))
+  "__m512")
+
+(defmethod mangle-type ((thing (eql '#__m152d)) (abi msvc))
+  "_m512d")
+
+(defmethod mangle-type ((thing (eql '#___m152d)) (abi msvc))
+  "__m512d")
+
+(defmethod mangle-type ((thing (eql '#__m512i)) (abi msvc))
+  "_m512i")
+
+(defmethod mangle-type ((thing (eql '#___m512i)) (abi msvc))
+  "__m512i")
+
+(defmethod to-noffi-type ((thing pointer-type))
+  (list :pointer (to-noffi-type (pointer-type-pointee-type thing))))
+
+(defstruct (block-pointer-type (:include clang-type)))
+
+(defmethod deep-copy ((thing block-pointer-type))
+  (copy-block-pointer-type thing))
+
+(defstruct (lvalue-reference-type (:include reference-type)))
+
+(defmethod deep-copy ((thing lvalue-reference-type))
+  (let ((copy (copy-lvalue-reference-type thing)))
+    (setf (lvalue-reference-type-pointee-type copy)
+	  (deep-copy (lvalue-reference-type-pointee-type copy)))
+    copy))
+
+(defmethod mangle-type ((thing lvalue-reference-type) (abi msvc))
+  (let ((type-qualifiers (lvalue-reference-type-cv-qualifiers thing)))
+    (flet ((mangle-type-qualifiers ()
+	     (cond ((and (member :const type-qualifiers) (member :volatile type-qualifiers)) "D")
+		   ((member :volatile type-qualifiers) "C")
+		   ((member :const type-qualifiers) "B")
+		   (t "A"))))
+      (concatenate 'string "AE" (mangle-type-qualifiers)
+		   (mangle-type (lvalue-reference-type-pointee-type thing) abi)))))
+
+(defmethod mangle-type ((thing lvalue-reference-type) (abi itanium))
+  (let ((type-qualifiers (lvalue-reference-type-cv-qualifiers thing)))
+    (flet ((mangle-type-qualifiers ()
+	     (cond ((and (member :const type-qualifiers) (member :volatile type-qualifiers)) "VK")
+		   ((member :volatile type-qualifiers) "V")
+		   ((member :const type-qualifiers) "K")
+		   (t nil))))
+      (concatenate 'string (mangle-type-qualifiers)
+		   (mangle-type (lvalue-reference-type-pointee-type thing) abi)))))
+
+(defmethod to-noffi-type ((thing lvalue-reference-type))
+  (list :lvalue-reference (to-noffi-type (lvalue-reference-type-pointee-type thing))))
+
+(defstruct (rvalue-reference-type (:include reference-type)))
+
+(defmethod deep-copy ((thing rvalue-reference-type))
+  (let ((copy (copy-rvalue-reference-type thing)))
+    (setf (rvalue-reference-type-pointee-type copy)
+	  (deep-copy (rvalue-reference-type-pointee-type copy)))
+    copy))
+
+(defmethod mangle-type ((thing rvalue-reference-type) (abi msvc))
+  (warn "unimplemented")
+  (mangle-type (rvalue-reference-type-pointee-type thing) abi))
+
+(defmethod mangle-type ((thing rvalue-reference-type) (abi itanium))
+  (concatenate 'string "O" (mangle-type (rvalue-reference-type-pointee-type thing) abi)))
+
+(defmethod to-noffi-type ((thing rvalue-reference-type))
+  (list :rvalue-reference (to-noffi-type (rvalue-reference-type-pointee-type thing))))
+
+(defstruct (record-type (:include clang-type)))
+
+(defmethod deep-copy ((thing record-type))
+  (copy-record-type thing))
+
+(defmethod to-noffi-type ((thing record-type))
+  (list :type-name (record-type-name thing)))
+
+(defstruct (template-class-type (:include record-type))
+  (arguments nil))
+
+(defmethod deep-copy ((thing template-class-type))
+  (copy-template-class-type thing))
+
+#+NIL
+(defmethod mangle-type ((thing template-class-type) (abi msvc))
+  (let ((template-name (template-class-type-name thing))
+	(template-arguments (template-class-type-arguments thing)))
+    (apply #'concatenate
+	   'string
+	   "?$"
+	   (mangle-basic-name template-name abi)
+	   "@"
+	   (loop for argument in template-arguments
+		 collect (let ((type (gethash argument *types*)))
+			   (if (null type)
+			       (let ((type (literal-is-of-type argument)))
+				 (case type
+				   (:integer (concatenate 'string "$0" (symbol-name argument)))))
+			       (mangle-type type abi)))))))
+
+(defstruct (enum-type (:include clang-type)))
+
+(defmethod deep-copy ((thing enum-type))
+  (copy-enum-type thing))
+
+
+
+(defmethod to-noffi-type ((thing enum-type))
+  (list :type-name (enum-type-name thing)))
+
+(defstruct (typedef-type (:include clang-type))
+  (canonical-type nil))
+
+(defmethod deep-copy ((thing typedef-type))
+  (copy-typedef-type thing))
+
+(defmethod mangle-type ((thing typedef-type) (abi msvc))
+  (if (typedef-type-canonical-type thing)
+      (mangle-type (typedef-type-canonical-type thing) abi)
+      (error "cannot mangle type ~S" thing)))
+
+(defmethod to-noffi-type ((thing typedef-type))
+  (list :type-name (typedef-type-name thing)))
+
+(defstruct (objc-interface-type (:include clang-type)))
+
+(defmethod deep-copy ((thing objc-interface-type))
+  (copy-objc-interface-type thing))
+
+(defstruct (objc-object-pointer-type (:include clang-type)))
+
+(defmethod deep-copy ((thing objc-object-pointer-type))
+  (copy-objc-object-pointer-type thing))
+
+(defstruct (function-type (:include clang-type))
+  (return-type nil)
+  (argument-types nil))
+
+(defstruct (function-no-proto-type (:include function-type)))
+
+(defmethod deep-copy ((thing function-no-proto-type))
+  (copy-function-no-proto-type thing))
+
+(defmethod to-noffi-type ((thing function-no-proto-type))
+  (list :function (to-noffi-type (function-type-return-type thing))
+	(mapcar #'(lambda (arg-type)
+		    (list (list 'noffi::decl nil arg-type)))
+		(mapcar 'to-noffi-type (function-type-argument-types thing)))))
+
+(defstruct (function-proto-type (:include function-type)))
+
+(defmethod deep-copy ((thing function-proto-type))
+  (copy-function-proto-type thing))
+
+(defmethod mangle-type ((thing function-proto-type) abi)
+  (warn "cannot mangle-type of ~S" thing)
+  nil)
+
+(defmethod to-noffi-type ((thing function-proto-type))
+  (list :function (to-noffi-type (function-type-return-type thing))
+	(mapcar #'(lambda (arg-type)
+		    (list (list 'noffi::decl nil arg-type)))
+		(mapcar 'to-noffi-type (function-type-argument-types thing)))))
+
+(defstruct (constant-array-type (:include array-type)))
+
+(defmethod deep-copy ((thing constant-array-type))
+  (let ((copy (copy-constant-array-type thing)))
+    (setf (constant-array-type-element-type copy)
+	  (deep-copy (constant-array-type-element-type copy)))
+    copy))
+
+(defmethod to-noffi-type ((thing constant-array-type))
+  (list :array (to-noffi-type (constant-array-type-element-type thing))))
+
+(defstruct (vector-type (:include array-vector-or-complex-type)))
+
+(defmethod deep-copy ((thing vector-type))
+  (let ((copy (copy-vector-type thing)))
+    (setf (vector-type-element-type copy)
+	  (deep-copy (vector-type-element-type copy)))
+    copy))
+
+(defmethod to-noffi-type ((thing vector-type))
+  (warn "cannot convert vector-type ~S" thing))
+
+(defstruct (incomplete-array-type (:include array-type)))
+
+(defmethod deep-copy ((thing incomplete-array-type))
+  (let ((copy (copy-incomplete-array-type thing)))
+    (setf (incomplete-array-type-element-type copy)
+	  (deep-copy (incomplete-array-type-element-type copy)))
+    copy))
+
+(defmethod to-noffi-type ((thing incomplete-array-type))
+  (list :array (to-noffi-type (incomplete-array-type-element-type thing))))
+
+(defstruct (variable-array-type (:include array-type)))
+
+(defmethod deep-copy ((thing variable-array-type))
+  (let ((copy (copy-variable-array-type thing)))
+    (setf (variable-array-type-element-type copy)
+	  (deep-copy (variable-array-type-element-type copy)))
+    copy))
+
+(defmethod to-noffi-type ((thing variable-array-type))
+  (list :array (to-noffi-type (variable-array-type-element-type thing))))
+
+(defstruct (dependent-sized-array-type (:include array-type)))
+
+(defmethod deep-copy ((thing dependent-sized-array-type))
+  (let ((copy (copy-dependent-sized-array-type thing)))
+    (setf (dependent-sized-array-type-element-type copy)
+	  (deep-copy (dependent-sized-array-type-element-type copy)))
+    copy))
+
+(defmethod to-noffi-type ((thing dependent-sized-array-type))
+  (list :array (to-noffi-type (dependent-sized-array-type-element-type thing))))
+
+(defstruct (member-pointer-type (:include clang-type)))
+
+(defmethod deep-copy ((thing member-pointer-type))
+  (copy-member-pointer-type thing))
+
+(defmethod to-noffi-type ((thing member-pointer-type))
+  (list :member-pointer (member-pointer-type-name thing)))
+
+(defstruct (auto-type (:include clang-type)))
+
+(defmethod deep-copy ((thing auto-type))
+  (copy-auto-type thing))
+
+(defstruct (elaborated-type (:include clang-type))
+  (named-type nil))
+
+(defmethod deep-copy ((thing elaborated-type))
+  (let ((copy (copy-elaborated-type thing)))
+    (setf (elaborated-type-named-type copy)
+	  (deep-copy (elaborated-type-named-type copy)))
+    copy))
+
+#+NIL
+(defmethod mangle-type ((thing elaborated-type) (abi msvc))
+  (mangle-basic-name (clang-type-name thing) abi))
+
+(defmethod to-noffi-type ((thing elaborated-type))
+  (or (and (elaborated-type-named-type thing)
+	   (to-noffi-type (elaborated-type-named-type thing)))
+      (list :type-name (elaborated-type-name thing))))
+
+
+(defun is-128-bit-signed-clang-type (ctype)
+  (int128-type-p ctype))
+
+(defun is-64-bit-unsigned-clang-type (ctype)
+  (ulonglong-type-p ctype))
+
+(defun is-64-bit-signed-clang-type (ctype)
+  (longlong-type-p ctype))
+
+(defun is-32-bit-unsigned-clang-type (ctype)
+  (or (ulong-type-p ctype)
+      (uint-type-p ctype)))
+
+(defun is-32-bit-signed-clang-type (ctype)
+  (or (long-type-p ctype)
+      (int-type-p ctype)
+      (char32-type-p ctype)))
+
+(defun is-16-bit-unsigned-clang-type (ctype)
+  (ushort-type-p ctype))
+
+(defun is-16-bit-signed-clang-type (ctype)
+  (or (short-type-p ctype)
+      (char16-type-p ctype)
+      (wchar-type-p ctype)))
+
+(defun is-8-bit-unsigned-clang-type (ctype)
+  (or (uchar-type-p ctype)
+      (char-u-type-p ctype)))  
+
+(defun is-8-bit-signed-clang-type (ctype)
+  (or (char-s-type-p ctype)
+      (schar-type-p ctype)))
+
+(defmethod integer-clang-type-p ((integer integer) (clang-type primitive-c-type))
+  (cond ((void-type-p clang-type) nil)
+	((bool-type-p clang-type) nil)
+	((minusp integer)
+	 (cond ((< integer #.(- (expt 2 127))) nil)
+	       ((< integer #.(- (expt 2 63)))
+		(is-128-bit-signed-clang-type clang-type))
+	       ((< integer #.(- (expt 2 31)))
+		(or (is-64-bit-signed-clang-type clang-type)
+		    (is-128-bit-signed-clang-type clang-type)))
+	       ((< integer #.(- (expt 2 15)))
+		(or (is-32-bit-signed-clang-type clang-type)
+		    (is-64-bit-signed-clang-type clang-type)
+		    (is-128-bit-signed-clang-type clang-type)))
+	       ((< integer #.(- (expt 2 7)))
+		(or (is-16-bit-signed-clang-type clang-type)
+		    (is-32-bit-signed-clang-type clang-type)
+		    (is-64-bit-signed-clang-type clang-type)
+		    (is-128-bit-signed-clang-type clang-type)))
+	       (t
+		(or (is-8-bit-signed-clang-type clang-type)
+		    (is-16-bit-signed-clang-type clang-type)
+		    (is-32-bit-signed-clang-type clang-type)
+		    (is-64-bit-signed-clang-type clang-type)
+		    (is-128-bit-signed-clang-type clang-type)))))
+	((> integer #.(expt 2 128)) nil)
+	((> integer #.(expt 2 127)) (is-128-bit-unsigned-clang-type clang-type))
+	((> integer #.(expt 2 64)) (or (is-128-bit-signed-clang-type clang-type)
+				       (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 63)) (or (is-64-bit-unsigned-clang-type clang-type)
+				       (is-128-bit-signed-clang-type clang-type)
+				       (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 32)) (or (is-64-bit-signed-clang-type clang-type)
+				       (is-64-bit-unsigned-clang-type clang-type)
+				       (is-128-bit-signed-clang-type clang-type)
+				       (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 31)) (or (is-32-bit-unsigned-clang-type clang-type)
+				       (is-64-bit-signed-clang-type clang-type)
+				       (is-64-bit-unsigned-clang-type clang-type)
+				       (is-128-bit-signed-clang-type clang-type)
+				       (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 16)) (or (is-32-bit-signed-clang-type clang-type)
+				       (is-32-bit-unsigned-clang-type clang-type)
+				       (is-64-bit-signed-clang-type clang-type)
+				       (is-64-bit-unsigned-clang-type clang-type)
+				       (is-128-bit-signed-clang-type clang-type)
+				       (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 15)) (or (is-16-bit-unsigned-clang-type clang-type)
+				      (is-32-bit-signed-clang-type clang-type)
+				      (is-32-bit-unsigned-clang-type clang-type)
+				      (is-64-bit-signed-clang-type clang-type)
+				      (is-64-bit-unsigned-clang-type clang-type)
+				      (is-128-bit-signed-clang-type clang-type)
+				      (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 8)) (or (is-16-bit-signed-clang-type clang-type)
+				      (is-16-bit-unsigned-clang-type clang-type)
+				      (is-32-bit-signed-clang-type clang-type)
+				      (is-32-bit-unsigned-clang-type clang-type)
+				      (is-64-bit-signed-clang-type clang-type)
+				      (is-64-bit-unsigned-clang-type clang-type)
+				      (is-128-bit-signed-clang-type clang-type)
+				      (is-128-bit-unsigned-clang-type clang-type)))
+	((> integer #.(expt 2 7)) (or (is-8-bit-unsigned-clang-type clang-type)
+				      (is-16-bit-signed-clang-type clang-type)
+				      (is-16-bit-unsigned-clang-type clang-type)
+				      (is-32-bit-signed-clang-type clang-type)
+				      (is-32-bit-unsigned-clang-type clang-type)
+				      (is-64-bit-signed-clang-type clang-type)
+				      (is-64-bit-unsigned-clang-type clang-type)
+				      (is-128-bit-signed-clang-type clang-type)
+				      (is-128-bit-unsigned-clang-type clang-type)))
+	(t t)))
+
+(defmethod float-clang-type-p (thing (ctype primitive-c-type))
+  (and (floatp thing)
+       (cond ((zerop thing) (or (float128-type-p ctype)
+				(double-type-p ctype)
+				(float-type-p ctype)
+				(float16-type-p ctype)
+				(half-type-p ctype)))
+	     ((minusp thing)
+	      (cond ((< thing -3.4028235d38) (or (float128-type-p ctype) (double-type-p ctype)))
+		    ((> thing -1.4012985d-45) (or (float128-type-p ctype) (double-type-p ctype)))
+		    (t (or (float-type-p ctype)
+			   (float16-type-p ctype)
+			   (half-type-p ctype)))))
+	     ((> thing 3.4028235d38) (or (float128-type-p ctype) (double-type-p ctype)))
+	     ((< thing 1.4012985d-45) (or (float128-type-p ctype) (double-type-p ctype)))
+	     (t (or (float-type-p ctype)
+		    (float16-type-p ctype)
+		    (half-type-p ctype))))))
+
+
+;; a c++ struct def
+;; fields are field-declarations in reverse-order
+;; base-types are symbols in the noffi-c package in reverse order
+;; methods are method-declarations in reverse order
+;; vtable-p is lisp boolean, telling whether this class (but not necessarily the base-types)
+;;  had a virtual method, qualifying it for a vtable pointer
+(defstruct (struct-declaration (:include namespace))
+  (base-types nil)
+  (fields nil)
+  (methods nil)
+  (vtable-p nil)
+  (size nil))
+
+(defun has-vtable-p (decl)
+  (or (struct-declaration-vtable-p decl)
+      (some #'(lambda (type)
+		(let ((decl (get-decl type)))
+		  (when decl
+		    (has-vtable-p decl))))
+	    (struct-declaration-base-types decl))))
+
+(defmethod make-noffi-type-declaration ((decl struct-declaration) name (module module) abi)
+  (noffi::make-declaration :name name
+			   :storage-class :typedef
+			   :type (apply #'noffi::make-struct-type
+				  name
+				  :members
+				  (if (and (null (has-vtable-p decl))
+					   (null (struct-declaration-fields decl)))
+				      (list (noffi::make-declaration
+					     :name '#_byte :type :char))
+				      (append
+				       (when (has-vtable-p decl)
+					 (list (noffi::make-declaration
+						:name '#___vptr
+						:type (noffi::make-pointer-type
+						       (noffi::make-pointer-type :void)))))
+				   
+				       (loop for field in (struct-declaration-fields decl)
+					     collect (make-noffi-type-declaration
+						      field
+						      (named-declaration-name field)
+						      module
+						      abi))))
+				  (when (struct-declaration-base-types decl)
+				    (list :base (mapcar #'compose-typename 
+							(struct-declaration-base-types decl)))))))
+							  
+
+
+(defmethod deep-copy ((thing struct-declaration))
+  (let ((copy (copy-struct-declaration thing)))
+    (setf (struct-declaration-base-types copy)
+	  (copy-seq (struct-declaration-base-types copy)))
+    (setf (struct-declaration-fields copy)
+	  (mapcar #'deep-copy (struct-declaration-fields copy)))
+    (setf (struct-declaration-methods copy)
+	  (mapcar #'deep-copy (struct-declaration-methods copy)))
+    copy))
+
+(defstruct (union-declaration (:include struct-declaration)))
+
+;; a struct or class field
+;; name is c/c++ name of the field in the noffi-c package
+;; type is a noffi type
+(defstruct (field-declaration (:include named-declaration))
+  (type nil)
+  (bit-offset nil)
+  (access nil))
+
+(defmethod make-noffi-type-declaration ((decl field-declaration) name (module module) abi)
+  (noffi::make-declaration :name name
+			   :specifiers (when (field-declaration-bit-offset decl)
+					 (list (list :bit-offset (field-declaration-bit-offset decl))))
+			   :type (compose-typename (field-declaration-type decl))))
+
+(defmethod deep-copy ((thing field-declaration))
+  (let ((copy (copy-field-declaration thing)))
+    (setf (field-declaration-type copy)
+	  (deep-copy (field-declaration-type copy)))
+    copy))
+
+
+(defmethod deep-copy ((thing list))
+  (if (not (consp thing))
+      thing
+      (mapcar #'deep-copy thing)))
+
+;; a c++ class declaration
+(defstruct (class-declaration (:include struct-declaration)))
+
+(defmethod deep-copy ((thing struct-declaration))
+  (let ((copy (copy-class-declaration thing)))
+    (setf (class-declaration-base-types copy)
+	  (copy-seq (class-declaration-base-types copy)))
+    (setf (class-declaration-fields copy)
+	  (mapcar #'deep-copy (class-declaration-fields copy)))
+    (setf (class-declaration-methods copy)
+	  (mapcar #'deep-copy (class-declaration-methods copy)))
+    copy))
+
+#+NIL
+(defmethod mangle-type ((thing record-type) (abi msvc))
+  (let* ((name (record-type-name thing))
+	 (decl (get-declaration name)))
+    (if (null decl)
+	(warn "no declaration for type ~S" name)
+	(concatenate 'string 
+		     (cond ((class-declaration-p decl) "V")
+			   ((enum-declaration-p decl) "W4")
+			   ((union-declaration-p decl) "T")
+			   (t "U"))
+		     (mangle-basic-name name abi)
+		     "@@"))))
+
+(defmethod mangle-type ((thing list) (abi msvc))
+  (labels ((mangle-pointer-basic (thing)
+	     (cond ((type-qualifier-type-p thing)
+		      (let ((more2 (caddr thing)))
+			(cond ((type-qualifier-type-p more2)
+			       (cond ((or (and (eql :const (cadr thing))
+					       (eql :volatile (cadr more2)))
+					  (and (eql :volatile (cadr thing))
+					       (eql :const (cadr more2))))
+				      (concatenate 'string "D" (mangle-type (caddr more2) abi)))
+				     (t (error "foo1"))))
+			      (t (cond ((eql :const (cadr thing))
+					(concatenate 'string "B" (mangle-type (caddr thing) abi)))
+				       ((eql :volatile (cadr thing))
+					(concatenate 'string "C" (mangle-type (caddr thing) abi)))
+				       (t (error "foo2")))))))
+		   (t (concatenate 'string "A" (mangle-type thing abi)))))
+	   
+	   (mangle-basic-typename (thing &optional decl-search-path)
+	     (let ((decl (get-decl thing decl-search-path)))
+	       (cond ((enum-declaration-p decl)
+		      (concatenate 'string "W4" (mangle-parsed-name thing abi) "@@"))
+		     ((union-declaration-p decl)
+		      (concatenate 'string "T" (mangle-parsed-name thing abi) "@@"))
+		     ((class-declaration-p decl)
+		      (concatenate 'string "V" (mangle-parsed-name thing abi) "@@"))
+		     ((struct-declaration-p decl)
+		      (concatenate 'string "U" (mangle-parsed-name thing abi) "@@"))
+		     ((type-definition-p decl)
+		      (mangle-type (type-definition-type decl) abi))
+		     (t (error "foo8"))))))
+				   
+    
+	     
+    (cond ((lvalue-ref-type-p thing)
+	   (concatenate 'string "AE" (mangle-pointer-basic (cadr thing))))
+
+	  ((rvalue-ref-type-p thing)
+	   (concatenate 'string "AE" (mangle-pointer-basic (cadr thing))))
+
+	  ((union-type-p thing)
+	   (concatenate 'string "T" (mangle-type (cadr thing) abi) "@@"))
+	  
+	  ((struct-type-p thing)
+	   (concatenate 'string "U" (mangle-type (cadr thing) abi) "@@"))
+
+	  ((array-type-expr-p thing)
+	   (concatenate 'string "QE" (mangle-type (cadr thing) abi)))
+
+	  ((qualified-type-p thing)
+	   (apply #'concatenate 'string
+		  (append
+		   (mapcar #'(lambda (namespace)
+			       (concatenate 'string (symbol-name namespace) "@"))
+			   (butlast (cdr thing)))
+		   (list (mangle-basic-typename (car (last thing)) (butlast (cdr thing)))))))
+
+	  ((unqualified-type-p thing) ;; hack.
+	   (apply #'concatenate 'string
+		  (append
+		   (mapcar #'(lambda (namespace)
+			       (concatenate 'string (symbol-name namespace) "@"))
+			   (butlast (cdr thing)))
+		   (list (mangle-basic-typename (car (last thing)) (butlast (cdr thing)))))))
+		  
+	  ((type-qualifier-type-p thing)
+	   (let ((more1 (caddr thing)))
+	     (cond ((type-qualifier-type-p more1)
+		    (let ((more2 (caddr more1)))
+		      (cond ((type-qualifier-type-p more2)
+			     (let ((more3 (caddr more2)))
+			       (cond ((pointer-type-expr-p more3)
+				      (let ((kwds (append (list (cadr thing))
+							  (list (cadr more1))
+							  (list (cadr more2)))))
+					(cond ((and (member :const kwds)
+						    (member :volatile kwds)
+						    (member :restrict kwds))
+					       (concatenate 'string "SEI"
+							    (mangle-pointer-basic (cadr more3))))
+					      (t (error "foo4")))))
+				     (t (error "foo5")))))
+			    ((pointer-type-expr-p more2)
+			     (let ((kwds (append (list (cadr thing)) (list (cadr more1)))))
+			       (cond ((and (member :const kwds)
+					   (member :volatile kwds))
+				      (concatenate 'string "SE" (mangle-pointer-basic (cadr more2))))
+				     ((and (member :const kwds)
+					   (member :restrict kwds))
+				      (concatenate 'string "QEI" (mangle-pointer-basic (cadr more2))))
+				     ((and (member :volatile kwds)
+					   (member :restrict kwds))
+				      (concatenate 'string "REI" (mangle-pointer-basic (cadr more2))))
+				     (t (error "foo3")))))
+			    ((lvalue-ref-type-p more2)
+			     (error "foo10"))
+			    ((rvalue-ref-type-p more2)
+			     (error "foo11"))
+			    (t (error "foo12")))))
+		   ((pointer-type-expr-p more1)
+		    (cond ((eql :const (cadr thing))
+			   (concatenate 'string "QE" (mangle-pointer-basic (cadr more1))))
+			  ((eq :volatile (cadr thing))
+			   (concatenate 'string "RE" (mangle-pointer-basic (cadr more1))))
+			  ((eq :restrict (cadr thing))
+			   (concatenate 'string "PEI" (mangle-pointer-basic (cadr more1))))
+			  (t (error "foo6"))))
+		   ((lvalue-ref-type-p more1)
+		    (error "foo14"))
+		   ((rvalue-ref-type-p more1)
+		    (error "foo15"))
+		   (t (cond ((eql :const (cadr thing))
+			     (mangle-type (caddr thing) abi))
+			    ((eql :volatile (cadr thing))
+			     (error "foo13"))
+			    (t (error "foo7")))))))
+	  
+	  ((pointer-type-expr-p thing)
+	   (concatenate 'string "PE" (mangle-pointer-basic (cadr thing))))	  	   
+	  
+	  ((type-name-type-p thing)
+	   (let ((name (cadr thing)))
+	     (cond ((or (eql name 'noffi-c::|bool|)
+			(eql name 'noffi-c::|size_t|)
+			(eql name 'noffi-c::|wchar_t|)
+			(eql name 'noffi-c::|char16_t|)
+			(eql name 'noffi-c::|char32_t|)
+			(eql name 'noffi-c::|uintptr_t|)
+			(eql name 'noffi-c::|string|))
+		 
+		    (mangle-type name abi))
+
+		   ((or (eql name 'noffi-c::|_m128|)
+			(eql name 'noffi-c::|_m128i|)
+			(eql name 'noffi-c::|_m128d|)
+			(eql name 'noffi-c::|_m256|)
+			(eql name 'noffi-c::|_m256i|)
+			(eql name 'noffi-c::|_m256d|)
+			(eql name 'noffi-c::|_m512|)
+			(eql name 'noffi-c::|_m512i|)
+			(eql name 'noffi-c::|_m512d|))
+
+		    (concatenate 'string "U" (symbol-name name) "@@"))
+
+		   (t (mangle-basic-typename thing)))))
+	  
+	  ((template-type-p thing)
+	   (mangle-parsed-name thing abi))
+	  (t (error "foo9")))))
+
+(defun split-name (name)
+  (when (symbolp name)
+    (setq name (symbol-name name)))
+  (if (or (null (position #\: name)) (position #\( name)) ;; it's a function pointer type
+      (list (noffi::cintern name))
+      (mapcar #'noffi::cintern
+	      (remove-if #'(lambda (part)
+			     (string= "" part))
+			 (mapcar #'(lambda (part)
+				     (string-trim '(#\:) part))
+				 (uiop/utility:split-string name :separator '(#\:)))))))
+
+
+(defmethod mangle-basic-name (name namespace (abi msvc))
+  (when (symbolp name)
+    (setq name (symbol-name name)))
+  (let ((parsed-name (noffi::parse-type name)))
+    (setq parsed-name (resolve parsed-name namespace))
+    (mangle-parsed-name parsed-name abi)))
+
+(defun mangle-parsed-name (parsed-name abi)
+  (flet ((mangle-qualifiers (name)
+	     (cond ((qualified-type-p name)
+		    (mapcar #'(lambda (part)
+				(concatenate 'string (symbol-name part) "@"))
+			    (butlast (cdr name))))
+		   (t (list "")))))
+      (cond ((template-type-p parsed-name)
+	     (apply #'concatenate 'string (mangle-template-name parsed-name abi)
+		    (mangle-qualifiers (cadr parsed-name))))
+	    ((type-name-type-p parsed-name)
+	     (cond ((qualified-type-p (cadr parsed-name))
+		    (apply #'concatenate 'string (symbol-name (first (last (cadr parsed-name)))) "@"
+			   (mangle-qualifiers (cadr parsed-name))))
+		   (t (concatenate 'string (symbol-name (cadr parsed-name)) "@"))))
+	    ((qualified-type-p parsed-name)
+	     (apply #'concatenate 'string (symbol-name (first (last parsed-name))) "@"
+		    (mangle-qualifiers parsed-name)))
+	    ((unqualified-type-p parsed-name)
+	     (apply #'concatenate 'string (symbol-name (first (last parsed-name))) "@"
+		    (mangle-qualifiers parsed-name)))
+	    (t (error "foo101")))))
+
+
+(defmethod mangle-template-name (template (abi msvc))
+  (cond ((template-type-p template)
+	 (apply #'concatenate
+		'string
+		"?$"
+		(mangle-parsed-name (cadr template) abi)
+		 "@"
+		 (loop for argument in (cddr template)
+		       collect (cond ((or (template-type-p argument)
+					  (type-name-type-p argument))
+				      (mangle-parsed-name argument abi))
+				     ((and (consp argument)
+					   (eq :integer-constant (car argument)))
+				      (concatenate 'string "$0" (princ-to-string (caddr argument))))))))
+	(t (error "foo102"))))
+	
+
+;; an argument to a function or a class method, types are noffi types
+(defstruct function-argument
+  (name nil)
+  (type nil))
+
+(defmethod deep-copy ((thing function-argument))
+  (let ((copy (copy-function-argument thing)))
+    (setf (function-argument-type copy)
+	  (deep-copy (function-argument-type copy)))
+    copy))
+
+;; a function declaration, return type is noffi type,
+;; name is a noffi-c package symbol of c/c++ name string
+;; arguments are function-arguments in reverse order
+(defstruct (function-declaration (:include named-declaration))
+  (return-type nil)
+  (mangled-name nil)
+  (homegrown-mangled-name nil)
+  (arguments nil)
+  (num-args nil)
+  (variadic? nil)
+  (storage-kind nil))
+
+(defmethod deep-copy ((thing function-declaration))
+  (let ((copy (copy-function-declaration thing)))
+    (setf (function-declaration-return-type copy)
+	  (deep-copy (function-declaration-return-type copy)))
+    (setf (function-declaration-arguments copy)
+	  (mapcar #'deep-copy (function-declaration-arguments copy)))
+    copy))
+
+;; a c++ class method declaration
+(defstruct (method-declaration (:include function-declaration))
+  (class-name nil)
+  (virtual? nil)
+  (pure-virtual? nil)
+  (static? nil)
+  (constructor? nil)
+  (destructor? nil)
+  (access nil))
+
+(defmethod make-noffi-type-declaration ((decl method-declaration) name (module module) abi)
+  (when (or (null (method-declaration-mangled-name decl))
+	    (and (stringp (method-declaration-mangled-name decl))
+		 (string= (method-declaration-mangled-name decl) "")))
+    (format *lisp-file* ";; ~A~%" name)
+    (setf (method-declaration-mangled-name decl) (mangle-name decl abi)))
+  
+  (noffi::make-declaration
+   :name (noffi::cintern (method-declaration-mangled-name decl))
+   :type (noffi::make-pointer-type
+	  (noffi::make-function-type
+	   (compose-typename (method-declaration-return-type decl))
+	   (append
+	    (unless (method-declaration-static? decl)
+	      (list
+	       (noffi::make-declaration
+		:name '#_this
+		:type (noffi::make-pointer-type
+		       (method-declaration-class-name decl)))))
+	    (loop for argument in (method-declaration-arguments decl)
+		  collect (noffi::make-declaration
+			   :name (function-argument-name argument)
+			   :type (compose-typename
+				  (function-argument-type argument)))))))))
+
+				      
+
+(defmethod deep-copy ((thing method-declaration))
+  (let ((copy (copy-method-declaration thing)))
+    (setf (method-declaration-return-type copy)
+	  (deep-copy (method-declaration-return-type copy)))
+    (setf (method-declaration-arguments copy)
+	  (mapcar #'deep-copy (method-declaration-arguments copy)))
+    copy))
+
+(defmethod mangle-name ((method method-declaration) (abi msvc))
+  (setf (method-declaration-homegrown-mangled-name method)
+	(noffi::cintern
+	 (apply #'concatenate
+		'string
+		"?"
+		(special-name-mangling method)
+		"@"
+		(mangle-basic-name (method-declaration-class-name method)
+				   (method-declaration-namespace method)
+				   abi)
+		(mangle-modif method abi)
+		"E"
+		(mangle-type (method-declaration-return-type method) abi)
+		(append (loop for parameter in (method-declaration-arguments method)
+			      collect (mangle-type (function-argument-type parameter) abi))
+			(if (null (method-declaration-arguments method))
+			    (list "Z")
+			    (list "@")))))))
+	       
+
+(defmethod mangle-modif ((method method-declaration) (abi msvc))
+  (concatenate 'string (mangle-modif-1 (method-declaration-static? method)
+				       (method-declaration-access method)
+				       (method-declaration-pure-virtual? method)
+				       abi)))
+
+(defmethod mangle-modif-1 ((static? (eql t)) (access (eql :public)) (virtual? (eql nil)) (abi msvc))
+  "S")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :public)) (virtual? (eql nil)) (abi msvc))
+  "Q")
+
+(defmethod mangle-modif-1 ((static? (eql t)) (access (eql :private)) (virtual? (eql nil)) (abi msvc))
+  "C")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :private)) (virtual? (eql nil)) (abi msvc))
+  "A")
+
+(defmethod mangle-modif-1 ((static? (eql t)) (access (eql :protected)) (virtual? (eql nil)) (abi msvc))
+  "K")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :protected)) (virtual? (eql nil)) (abi msvc))
+  "I")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :public)) (virtual? (eql t)) (abi msvc))
+  "U")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :private)) (virtual? (eql t)) (abi msvc))
+  "E")
+
+(defmethod mangle-modif-1 ((static? (eql nil)) (access (eql :protected)) (virtual? (eql t)) (abi msvc))
+  "M")
+
+(defmethod special-name-mangling ((thing method-declaration))
+  (let ((name (method-declaration-name thing)))
+    (concatenate
+     'string
+     "?"
+     (cond ((method-declaration-constructor? thing) "0")
+	   ((method-declaration-destructor? thing)  "1")
+	   ((eq name '#.(noffi::cintern "operator new")) "2")
+	   ((eq name '#.(noffi::cintern "operator delete")) "3")
+	   ((eq name '#.(noffi::cintern "operator=")) "4")
+	   ((eq name '#.(noffi::cintern "operator>>")) "5")
+	   ((eq name '#.(noffi::cintern "operator<<")) "6")
+	   ((eq name '#.(noffi::cintern "operator!")) "7")
+	   ((eq name '#.(noffi::cintern "operator==")) "8")
+	   ((eq name '#.(noffi::cintern "operator!=")) "9")
+	   ((eq name '#.(noffi::cintern "operator[]")) "A")
+	   ((eq name '#.(noffi::cintern "operator returntype")) "B")
+	   ((eq name '#.(noffi::cintern "operator->")) "C")
+	   ((eq name '#.(noffi::cintern "operator*")) "D")
+	   ((eq name '#.(noffi::cintern "operator++")) "E")
+	   ((eq name '#.(noffi::cintern "operator--")) "F")
+	   ((eq name '#.(noffi::cintern "operator-")) "G")
+	   ((eq name '#.(noffi::cintern "operator+")) "H")
+	   ((eq name '#.(noffi::cintern "operator&")) "I")
+	   ((eq name '#.(noffi::cintern "operator->*")) "J")
+	   ((eq name '#.(noffi::cintern "operator/")) "K")
+	   ((eq name '#.(noffi::cintern "operator%")) "L")
+	   ((eq name '#.(noffi::cintern "operator<")) "M")
+	   ((eq name '#.(noffi::cintern "operator<=")) "N")
+	   ((eq name '#.(noffi::cintern "operator>")) "O")
+	   ((eq name '#.(noffi::cintern "operator>=")) "P")
+	   ((eq name '#.(noffi::cintern "operator,")) "Q")
+	   ((eq name '#.(noffi::cintern "operator()")) "R")
+	   ((eq name '#.(noffi::cintern "operator~")) "S")
+	   ((eq name '#.(noffi::cintern "operator^")) "T")
+	   ((eq name '#.(noffi::cintern "operator|")) "U")
+	   ((eq name '#.(noffi::cintern "operator&&")) "V")
+	   ((eq name '#.(noffi::cintern "operator||")) "W")
+	   ((eq name '#.(noffi::cintern "operator*=")) "X")
+	   ((eq name '#.(noffi::cintern "operator+=")) "Y")
+	   ((eq name '#.(noffi::cintern "operator-=")) "Z")
+	   ((eq name '#.(noffi::cintern "operator/")) "_0")
+	   ((eq name '#.(noffi::cintern "operator%")) "_1")
+	   ((eq name '#.(noffi::cintern "operator>>=")) "_2")
+	   ((eq name '#.(noffi::cintern "operator<<=")) "_3")
+	   ((eq name '#.(noffi::cintern "operator&=")) "_4")
+	   ((eq name '#.(noffi::cintern "operator|=")) "_5")
+	   ((eq name '#.(noffi::cintern "operator^=")) "_6")
+	   ((eq name '#.(noffi::cintern "vftable")) "_7")
+	   ((eq name '#.(noffi::cintern "vbtable")) "_8")
+	   ((eq name '#.(noffi::cintern "vcall")) "_9")
+	   ((eq name '#.(noffi::cintern "typeof")) "_A")
+	   ;; these following names probably don't apply to clang asts
+	   ((eq name '#.(noffi::cintern "local static guard")) "_B")
+	   ((eq name '#.(noffi::cintern "vbase destructor")) "_D")
+	   ((eq name '#.(noffi::cintern "vector deleting destructor")) "_E")
+	   ((eq name '#.(noffi::cintern "default constructor closure")) "_F")
+	   ((eq name '#.(noffi::cintern "scalar deleting destructor")) "_G")
+	   ((eq name '#.(noffi::cintern "vector constructor iterator")) "_H")
+	   ((eq name '#.(noffi::cintern "vector destructor iterator")) "_I")
+	   ((eq name '#.(noffi::cintern "vector vbase constructor iterator")) "_J")
+	   ((eq name '#.(noffi::cintern "virtual displacement map")) "_K")
+	   ((eq name '#.(noffi::cintern "eh vector constructor iterator")) "_L")
+	   ((eq name '#.(noffi::cintern "eh vector destructor iterator")) "_M")
+	   ((eq name '#.(noffi::cintern "eh vector vbase constructor iterator")) "_N")
+	   ((eq name '#.(noffi::cintern "copy constructor closure")) "_O")
+	   ((eq name '#.(noffi::cintern "udt returning")) "_P")
+	   ((eq name '#.(noffi::cintern "local vftable")) "_S")
+	   ((eq name '#.(noffi::cintern "local vftable constructor closure")) "_T")
+	   ((eq name '#.(noffi::cintern "operator new[]")) "_U")
+	   ((eq name '#.(noffi::cintern "operator delete[]")) "_V")
+	   ((eq name '#.(noffi::cintern "managed vector constructor iterator")) "__A")
+	   ((eq name '#.(noffi::cintern "managed vector destructor iterator")) "__B")
+	   ((eq name '#.(noffi::cintern "eh vector copy constructor iterator")) "__C")
+	   ((eq name '#.(noffi::cintern "eh vector vbase copy constructor iterator")) "__D")
+	   ((eq name '#.(noffi::cintern "dynamic initializer")) "__E")
+	   ((eq name '#.(noffi::cintern "dynamic atexit destructor")) "__F")
+	   ((eq name '#.(noffi::cintern "vector copy constructor iterator")) "__G")
+	   ((eq name '#.(noffi::cintern "vector vbase copy constructor iterator")) "__H")
+	   ((eq name '#.(noffi::cintern "managed vector copy constructor iterator")) "__I")
+	   ((eq name '#.(noffi::cintern "local static thread guard")) "__J")
+	   (t (symbol-name name))))))
+	   
+	   
+	   
+	   
+	   
+	   
+	   
+	    
+	 
+
+(defmethod deep-copy (thing)
+  thing)
+
+(defstruct (struct-template-definition (:include struct-declaration)))
+
+(defun deep-copy-struct-template-definition-to-struct-declaration (ctd arguments)
+  (make-struct-declaration :name (compose-template-name ctd arguments)
+			   :namespace (struct-template-definition-namespace ctd)
+			   :base-types (copy-seq (struct-template-definition-base-types ctd))
+			   :fields (mapcar #'deep-copy
+					   (struct-template-definition-fields ctd))
+			   :methods (mapcar #'deep-copy
+					    (struct-template-definition-methods ctd))
+			   :vtable-p (struct-template-definition-vtable-p ctd)
+			   :punt (struct-template-definition-punt ctd)))
+
+;; a c++ class template definition
+(defstruct (class-template-definition (:include class-declaration))
+  (arguments nil))
+
+(defun deep-copy-class-template-definition-to-class-declaration (ctd arguments)
+  (make-class-declaration :name (compose-template-name ctd arguments)
+			  :namespace (class-template-definition-namespace ctd)
+			  :base-types (copy-seq (class-template-definition-base-types ctd))
+			  :fields (mapcar #'deep-copy
+					  (class-template-definition-fields ctd))
+			  :methods (mapcar #'deep-copy
+					   (class-template-definition-methods ctd))
+			  :vtable-p (class-template-definition-vtable-p ctd)
+			  :punt (class-template-definition-punt ctd)))
+
+
+
+
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defparameter *cursor-kind-plist*
@@ -535,13 +2144,12 @@
 	(error "Unable to parse translation unit.")
 	(let ((root (#_clang_getTranslationUnitCursor unit))
 	      (filename (first args)))
-	  (unwind-protect (with-open-file (*lisp-file* (oc.lisp-filename *ffi*) :direction :output :if-exists :append :if-does-not-exist :create)
-			    (process-translation-unit
-			     *module* *abi* *ffi* *pass* root nil (noffi::cintern filename) nil))
-	    (setq *public?* :unset)
-	    (setq *base-type* nil)
+	  (unwind-protect (process-translation-unit
+			   *module* *abi* *ffi* *pass* root nil (noffi::cintern filename) nil)
+	    ;;(setq *public?* :unset)
+	    ;;(setq *base-type* nil)
 	    (setq *overloads* :unset)
-	    (setq *handle-type?* nil)
+	    ;;(setq *handle-type?* nil)
 	    (#_clang_disposeTranslationUnit unit)
 	    (#_clang_disposeIndex index)
 	    ))))
@@ -566,8 +2174,7 @@
 		   (let ((*overloads* (make-hash-table :test #'equalp)))
 		     (let ((*pass* 1))
 		       (apply #'main "c:/Users/awolven/cxxbinder/templates.hxx" (rest args)))))
-		 ))))
-  (setq *template-types* nil))
+		 )))))
 	  
 #+NIL
 (main "/Users/awolven/OCCT-7_8_0/include/Geom_BezierCurve.hxx" "-I" "/Users/awolven/OCCT-7_8_0/include/" "-I" "/usr/local/include/" "-I" "/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/c++/v1" "-I" "/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include" "-I" "/usr/local/ffigen/include")
@@ -625,31 +2232,86 @@
 	
 
 
-(defun ensure-type-definition (name type)
-  (let ((existing (gethash name *type-declarations*)))
+(defun ensure-type-definition (key type)
+  (let ((existing (gethash key (namespace-declarations *current-namespace*))))
     (if existing
-	(if (not (typep existing 'type-definition))
-	    (error "expected a type-definition for ~A, got a ~A" name (type-of existing))
-	    ;;(if (not (equalp type (type-definition-type existing)))
-	;;	(error "expected type ~S for type-definition ~A, found type ~S"
-	;;	       type name (type-definition-type existing))
-	    ;;existing)
+	(progn (when (type-definition-p existing)
+		 (unless (type-definition-type existing)
+		   (setf (type-definition-type existing) type)))
+	       existing)
+	(setf (gethash key (namespace-declarations *current-namespace*))
+	      (let ((decl
+		      (make-type-definition :namespace *current-namespace*
+					    :type type)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl)))))
 
-	    ;; just accept the new type as if it were gospel.
-	    (setf (type-definition-type existing) type))
-	(setf (gethash name *type-declarations*) (make-type-definition :name name
-								       :namespace *namespace-prefix*
-								       :type type)))))
-
-(defun ensure-class-declaration (name)
-  (let ((existing (gethash name *type-declarations*)))
+(defun ensure-type-alias (key type)
+  (let ((existing (gethash key (namespace-declarations *current-namespace*))))
     (if existing
-	(if (not (typep existing 'class-declaration))
-	    (error "expected a class-declaration for ~A, got a ~A" name (type-of existing))
+	(progn (when (type-alias-p existing)
+		 (unless (type-alias-type existing)
+		   (setf (type-alias-type existing) type)))
+	       existing)
+	(setf (gethash key (namespace-declarations *current-namespace*))
+	      (let ((decl
+		      (make-type-alias :namespace *current-namespace*
+				       :type type)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl)))))
+		
+
+(defun ensure-type-alias-template (key)
+  (let ((existing (gethash key (namespace-template-definitions *current-namespace*))))
+    (if existing
+	(progn (unless (type-alias-template-decl-p existing)
+		 (warn "~S is not of type type-alias-template-decl." existing))
+		 )
+	       existing)
+	(setf (gethash key (namespace-template-definitions *current-namespace*))
+	      (let ((decl (make-type-alias-template-decl
+			   :namespace *current-namespace*)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl))))		
+
+(defun ensure-class-declaration (key)
+  (let ((existing (gethash key (namespace-declarations *current-namespace*))))
+    (if existing
+	(if (not (class-declaration-p existing))
+	    (error "expected a class-declaration for ~A, got a ~A" key (type-of existing))
 	    existing)
-	(progn	  
-	  (setf (gethash name *type-declarations*) (make-class-declaration
-						    :name name :namespace *namespace-prefix*))))))
+	(setf (gethash key (namespace-declarations *current-namespace*))
+	      (let ((decl (make-class-declaration :namespace *current-namespace*)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl)))))
+		  
+
+(defun ensure-struct-declaration (key)
+  (let ((existing (gethash key (namespace-declarations *current-namespace*))))
+    (if existing
+	(if (not (struct-declaration-p existing))
+	    (error "expected a struct-declaration for ~A, got a ~A" key (type-of existing))
+	    existing)
+	(setf (gethash key (namespace-declarations *current-namespace*))
+		(let ((decl (make-struct-declaration :namespace *current-namespace*)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl)))))		  
+
+(defun ensure-union-declaration (key)
+  (let ((existing (gethash key (namespace-declarations *current-namespace*))))
+    (if existing
+	(if (not (union-declaration-p existing))
+	    (error "expected a union-declaration for ~A, got a ~A" key (type-of existing))
+	    existing)
+	(setf (gethash key (namespace-declarations *current-namespace*))
+	      (let ((decl (make-union-declaration :namespace *current-namespace*)))
+		(setf (named-declaration-name decl) (compose-typename-1 decl key))
+		decl)))))
+		  
+
+(defmethod process-inclusion-directive ((module module) abi ffi pass cursor parent name data)
+  ;;(format t "~&#include <~A>" name)
+  )
 
 (defmethod process-cxx-access-specifier ((module module) abi ffi pass cursor parent name data)
   (setq *access-specifier* (ecase (#_clang_getCXXAccessSpecifier cursor)
@@ -660,43 +2322,130 @@
 			     
 
 (defmethod process-cxx-base-specifier ((module module) abi ffi pass cursor parent name data)
-  (push name (struct-declaration-base-types *struct-declaration*)))
+  (let ((type-expression (get-type-expression-from-string name)))
+    (push type-expression (struct-declaration-base-types *declaration*))
+    (unless type-expression
+      (setf (named-declaration-punt *declaration*) t))))
+	  
 
-(defmethod process-class-decl :around ((module module) abi ffi pass cursor parent name data)
-  (let ((*struct-declaration* (ensure-class-declaration name)))
+(defun get-cursor-location (cursor)
+  (let ((location (#_clang_getCursorLocation cursor)))
+    (clet ((file #_<CXFile>)
+	   (line #_<unsigned int>)
+	   (column #_<unsigned int>)
+	   (offset #_<unsigned int>))
+      (#_clang_getSpellingLocation location (c-addr-of file)
+				   (c-addr-of line) (c-addr-of column) (c-addr-of offset))
+      (let ((cxstring (#_clang_getFileName file)))
+	(let ((cstring (#_clang_getCString cxstring)))
+	  (values 
+	   (when cstring
+	     (get-c-string cstring))
+	   line column offset))))))
+
+
+
+
+
+		      
+		      
+		  
+
+
+		      
+(defmethod process-linkage-spec :after ((module module) abi ffi pass cursor parent name data)
+  (visit-children cursor))
+
+(defun populate-source-location (cursor named-decl)
+  (unless (named-declaration-file named-decl)
+    (multiple-value-bind (filename line column offset) (get-cursor-location cursor)
+      (setf (named-declaration-file named-decl) (pathname filename)
+	    (named-declaration-line named-decl) line
+	    (named-declaration-column named-decl) column
+	    (named-declaration-offset named-decl) offset)
+      (values))))
+
+(defmethod process-struct-decl :around ((module module) abi ffi pass cursor parent name data)
+  (let* ((decl (ensure-struct-declaration name))
+	 (*current-namespace* decl)
+	 (*declaration* decl))
+    (populate-source-location cursor decl)
     (prog1 (call-next-method)
+      
+      (setf (struct-declaration-base-types *declaration*)
+	    (reverse (struct-declaration-base-types *declaration*)))
+      (setf (struct-declaration-methods *declaration*)
+	    (reverse (struct-declaration-methods *declaration*)))
+      (setf (struct-declaration-fields *declaration*)
+	    (reverse (struct-declaration-fields *declaration*))))))
 
-      (setf (struct-declaration-base-types *struct-declaration*)
-	    (reverse (struct-declaration-base-types *struct-declaration*)))
-      (setf (struct-declaration-methods *struct-declaration*)
-	    (reverse (struct-declaration-methods *struct-declaration*)))
-      (setf (struct-declaration-fields *struct-declaration*)
-	    (reverse (struct-declaration-fields *struct-declaration*))))))
+(defmethod process-union-decl :around ((module module) abi ffi pass cursor parent name data)
+  (let* ((decl (ensure-union-declaration name))
+	 (*current-namespace* decl)
+	 (*declaration* decl))
+    (populate-source-location cursor decl)
+    (prog1 (call-next-method)
+      
+      (setf (union-declaration-fields *declaration*)
+	    (reverse (union-declaration-fields *declaration*))))))
 
 (defmethod process-class-decl :after ((module module) abi ffi pass cursor parent name data)
   ;; unless full class decl has already been processed:
-  (unless (or (struct-declaration-base-types *struct-declaration*)
-	      (struct-declaration-methods *struct-declaration*)
-	      (struct-declaration-fields *struct-declaration*))
+  (unless (or (struct-declaration-base-types *declaration*)
+	      (struct-declaration-methods *declaration*)
+	      (struct-declaration-fields *declaration*))
     (visit-children cursor))
   
   (let* ((type (#_clang_getCursorType cursor))
 	 (size (#_clang_Type_getSizeOf type)))
     (unless (minusp size)
-      (setf (struct-declaration-size *struct-declaration*) size))))
+      (setf (struct-declaration-size *declaration*) size))))
+  
+  
+(defmethod process-class-decl :around ((module module) abi ffi pass cursor parent name data)
+  ;;(print name)
+  (let* ((*verbosity* 0)
+	 (decl (ensure-class-declaration name))
+	 (*current-namespace* decl)
+	 (*declaration* decl))
+    (populate-source-location cursor decl)
+    (prog1 (call-next-method)
+
+      (setf (class-declaration-base-types decl)
+	    (reverse (class-declaration-base-types decl)))
+      (setf (class-declaration-methods decl)
+	    (reverse (class-declaration-methods decl)))
+      (setf (class-declaration-fields decl)
+	    (reverse (class-declaration-fields decl))))))
+  
+
+(defmethod process-class-decl :after ((module module) abi ffi pass cursor parent name data)
+  ;; unless full class decl has already been processed:
+  (unless (or (struct-declaration-base-types *declaration*)
+	      (struct-declaration-methods *declaration*)
+	      (struct-declaration-fields *declaration*))
+    (visit-children cursor))
+  
+  (let* ((type (#_clang_getCursorType cursor))
+	 (size (#_clang_Type_getSizeOf type)))
+    (unless (minusp size)
+      (setf (struct-declaration-size *declaration*) size))))
   
 
 (defmethod process-field-decl ((module module) abi ffi pass cursor parent name data)
-  (let ((decl *struct-declaration*))
-    (let ((type (make-a-clang-type (#_clang_getCursorType cursor))))
-      (push (make-field-declaration :name name
-				    :type type
-				    :bit-offset (let ((o (#_clang_Cursor_getOffsetOfField cursor)))
-						  (unless (minusp o)
-						    o))
-				    :access *access-specifier*)
+  (let ((decl *declaration*))
+    (let* ((type (get-type-expression (#_clang_getCursorType cursor)))
+	   (field (make-field-declaration :name name
+					  :type type
+					  :bit-offset (let ((o (#_clang_Cursor_getOffsetOfField cursor)))
+							(unless (minusp o)
+							  o))
+					  :access *access-specifier*)))
+      (populate-source-location cursor field)
+      (unless type
+	(setf (named-declaration-punt decl) t))
+      (push field
 	    (struct-declaration-fields decl))
-      (maybe-intern-type type)
       (values))))
 
 (defmethod process-cxx-method :around ((module module) abi ffi pass cursor parent name data)
@@ -709,45 +2458,98 @@
 (defmethod process-cxx-method :before ((module module) abi ffi pass cursor parent name data)
   (let ((virtual? (not (= 0 (#_clang_CXXMethod_isVirtual cursor)))))
     (when virtual?
-      (let ((decl *struct-declaration*))
+      (let ((decl *declaration*))
 	(setf (struct-declaration-vtable-p decl) t))))
   (values))
 
-(defmethod process-class-template :around ((module module) abi ffi pass cursor parent name data)
-  (let ((*struct-declaration* (make-class-template-definition
-			       :name name
-			       :namespace *namespace-prefix*)))
-    (prog1 (call-next-method)
+(defun ensure-class-template-definition (name)
+  (let ((existing (gethash name (namespace-template-definitions *current-namespace*))))
+    (if existing
+	(if (not (typep existing 'class-template-definition))
+	    (error "expected a class-template-definition for ~A, got a ~A" name (type-of existing))
+	    existing)
+	(progn
+	  (setf (gethash name (namespace-template-definitions *current-namespace*))
+		;;(setf (gethash name (namespace-template-definitions *current-namespace*))
+		      (make-class-template-definition
+		       :name name :namespace *current-namespace*))))))
 
-      (setf (struct-declaration-base-types *struct-declaration*)
-	    (reverse (struct-declaration-base-types *struct-declaration*)))
-      (setf (struct-declaration-methods *struct-declaration*)
-	    (reverse (struct-declaration-methods *struct-declaration*)))
-      (setf (struct-declaration-fields *struct-declaration*)
-	    (reverse (struct-declaration-fields *struct-declaration*)))
-      (setf (class-template-definition-arguments *struct-declaration*)
-	    (reverse (class-template-definition-arguments *struct-declaration*)))
-
-      (let ((existing (gethash name *template-definitions*)))
-	(unless existing
-	  (setf (gethash name *template-definitions*) nil))
-	(pushnew (list (class-template-definition-arguments *struct-declaration*)
-		       *struct-declaration*)
-		 (gethash name *template-definitions*)
-		 :test #'equalp)))))
-
-(defmethod process-class-template :after ((module module) abi ffi pass cursor parent name data)
-  (unless (or (class-template-definition-base-types *struct-declaration*)
-	      (class-template-definition-methods *struct-declaration*)
-	      (class-template-definition-fields *struct-declaration*)
-	      (class-template-definition-arguments *struct-declaration*))
+(defmethod process-using-directive :after ((module module) abi ffi pass cursor parent name data)
+  (let ((*verbosity* 0))
     (visit-children cursor)))
 
-(defvar *type-ref* :error)
-(defvar *template-ref* :error)
-(defvar *decl-ref-expr* :error)
-(defvar *binary-operator* :error)
-(defvar *expression* :error)
+(defmethod process-namespace-ref ((module module) abi ffi pass cursor parent name data)
+  (cond ((= (#_.kind parent) #_CXCursor_UsingDirective)
+	 (pushnew name *using-directives*))))
+
+(defmethod process-unexposed-decl ((module module) abi ffi pass cursor parent name data)
+  ;;(print name)
+  )
+
+(defmethod process-type-alias-decl ((module module) abi ffi pass cursor parent name data)
+  (let ((type (#_clang_getTypedefDeclUnderlyingType cursor)))
+    (let* ((type (get-type-expression type)))
+      (cond ((= (#_.kind parent) #_CXCursor_TypeAliasTemplateDecl)
+	     (when (type-alias-template-decl-type-alias-decl *type-alias-template-decl*)
+	       (warn "there is already a type alias decl for template ~S" (get-cursor-name parent)))
+	     (let ((alias (make-type-alias :name name
+					   :namespace *current-namespace*
+					   :type type)))
+	       (setf (type-alias-template-decl-type-alias-decl *type-alias-template-decl*)
+		     alias)
+	       (unless type
+		 (setf (named-declaration-punt alias) t))
+	       (populate-source-location cursor alias)))		   
+	    (t
+	     (let* ((alias (ensure-type-alias name type)))
+	       (populate-source-location cursor alias)
+	       (unless type
+		 (setf (named-declaration-punt alias) t))))))))
+
+(defmethod process-type-alias-template-decl ((module module) abi ffi pass cursor parent name data)
+  (let* ((alias (ensure-type-alias-template name))
+	 (*type-alias-template-decl* alias))
+    (populate-source-location cursor alias)
+    (let ((*verbosity* 0))
+      (visit-children cursor))))
+
+(defmethod process-type-alias-decl :after ((module module) abi ffi pass cursor parent name data)
+  (let ((*verbosity* 0))
+    ;;(visit-children cursor)
+    ))
+
+
+
+(defmethod process-class-template-partial-specialization
+    ((module module) abi ffi pass cursor parent name data)
+  ;;(print name)
+  )
+
+(defmethod process-class-template :around ((module module) abi ffi pass cursor parent name data)
+  (let ((*verbosity* 0))
+  (let* ((decl (ensure-class-template-definition name))
+	 (*declaration* decl)
+	 (*current-namespace* decl))
+    (populate-source-location cursor decl)
+    (prog1 (call-next-method)
+	
+	(setf (struct-declaration-base-types *declaration*)
+	      (reverse (struct-declaration-base-types *declaration*)))
+	(setf (struct-declaration-methods *declaration*)
+	      (reverse (struct-declaration-methods *declaration*)))
+	(setf (struct-declaration-fields *declaration*)
+	      (reverse (struct-declaration-fields *declaration*)))
+	(setf (class-template-definition-arguments *declaration*)
+	      (reverse (class-template-definition-arguments *declaration*)))))))
+
+(defmethod process-class-template :after ((module module) abi ffi pass cursor parent name data)
+  (unless (or (class-template-definition-base-types *declaration*)
+	      (class-template-definition-methods *declaration*)
+	      (class-template-definition-fields *declaration*)
+	      #+NIL
+	      (class-template-definition-arguments *declaration*))
+    (visit-children cursor)))
+
 (defvar *default* :error)
 
 (defmethod process-template-type-parameter :around
@@ -761,10 +2563,10 @@
 			 2
 			 0)))
     (visit-children cursor)
-    (cond ((typep *struct-declaration* 'class-template-definition)
-	   (push (list* name :typename
+    (cond ((typep *declaration* 'class-template-definition)
+	   (push (list* :type-name name 
 			(when *default* (list (list* :default (reverse *default*)))))
-		 (class-template-definition-arguments *struct-declaration*))))))
+		 (class-template-definition-arguments *declaration*))))))
 
 (defmethod process-non-type-template-parameter :around
     ((module module) abi ffi pass cursor parent name data)
@@ -773,11 +2575,14 @@
 
 (defmethod process-non-type-template-parameter ((module module) abi ffi pass cursor parent name data)
   (visit-children cursor)
-  (cond ((typep *struct-declaration* 'class-template-definition)
-	 (let ((type (#_clang_getCursorType cursor)))
-	   (push (list* name (make-a-clang-type type)
+  (cond ((typep *declaration* 'class-template-definition)
+	 (let* ((type (#_clang_getCursorType cursor))
+		(type-expr (get-type-expression type)))
+	   (unless type-expr
+	     (setf (named-declaration-punt *declaration*) t))
+	   (push (list* type-expr name 
 			(when *default* (list (list* :default (reverse *default*)))))
-		 (class-template-definition-arguments *struct-declaration*))))))
+		 (class-template-definition-arguments *declaration*))))))
 
 (defmethod process-template-template-parameter :around
     ((module module) abi ffi pass cursor parent name data)
@@ -786,37 +2591,45 @@
 
 (defmethod process-template-template-parameter ((module module) abi ffi pass cursor parent name data)
   (visit-children cursor)
-  (cond ((typep *struct-declaration* 'class-template-definition)
-	 (push (list* name :template-typename
+  (cond ((typep *declaration* 'class-template-definition)
+	 (push (list* :template name 
 		      (when *default* (list (list* :default (reverse *default*)))))
-	       (class-template-definition-arguments *struct-declaration*)))))
+	       (class-template-definition-arguments *declaration*)))))
 
 (defmethod process-decl-ref-expr ((module module) abi ffi pass cursor parent name data)
   (cond ((or (= (#_.kind parent) #_CXCursor_TemplateTypeParameter)
 	     (= (#_.kind parent) #_CXCursor_NonTypeTemplateParameter)
 	     (= (#_.kind parent) #_CXCursor_TemplateTemplateParameter))
-	 (push (list name :decl-ref) *default*)
-	 #+NIL
-	 (push (make-a-clang-type (#_clang_getCursorType cursor)) *default*)
-	 )))
+	 (if *default*
+	     (nconc (car *default*) (list (list 'noffi::expr name)))
+	     (push (list 'noffi::expr name) *default*)))
+	((= (#_.kind parent) #_CXCursor_TypeAliasDecl)
+	 :do-nothing)))
 
 (defmethod process-type-ref ((module module) abi ffi pass cursor parent name data)
   (cond ((or (= (#_.kind parent) #_CXCursor_TemplateTypeParameter)
 	     (= (#_.kind parent) #_CXCursor_NonTypeTemplateParameter)
 	     (= (#_.kind parent) #_CXCursor_TemplateTemplateParameter))
-	 (push (list name :type-ref) *default*)
-	 #+NIL
-	 (push (make-a-clang-type (#_clang_getCursorType cursor)) *default*)
-	 )))
+	 (if *default*
+	     (nconc (car *default*) (list (list :type-name name)))
+	     (push (list :type-name name) *default*)))
+	((= (#_.kind parent) #_CXCursor_TypeAliasDecl)
+	 :do-nothing
+	 )
+	(t 
+	 (format t "type-ref ~A in ~A" name (#_.kind parent)))))
+	 
 
 (defmethod process-template-ref ((module module) abi ffi pass cursor parent name data)
   (cond ((or (= (#_.kind parent) #_CXCursor_TemplateTypeParameter)
 	     (= (#_.kind parent) #_CXCursor_NonTypeTemplateParameter)
 	     (= (#_.kind parent) #_CXCursor_TemplateTemplateParameter))
-	 (push (list name :template-ref) *default*)
-	 #+NIL
-	 (push (make-a-clang-type (#_clang_getCursorType cursor)) *default*)
-	 )))
+	 (if *default*
+	     (nconc (car *default*) (list (list :template name)))
+	     (push (list :template name) *default*)))
+	((= (#_.kind parent) #_CXCursor_TypeAliasDecl)
+	 :do-nothing)
+	))
 
 (defun translate-binary-operator-kind (kind)
   (ecase kind
@@ -907,53 +2720,40 @@
     (flet ((pure-virtual? ()
 	     (and virtual?
 		  (not (= 0 (#_clang_CXXMethod_isPureVirtual cursor))))))
-      (push (make-method-declaration :name name
-				     :return-type (process-function-return module ffi pass type)
-				     :mangled-name (when mangled-name
-						     (let ((cstr (#_clang_getCString mangled-name)))
-						       (when cstr
-							 (unwind-protect
-							      (get-c-string cstr)
-							   #+NIL
-							   (#_clang_disposeString cstr)))))
-				     :num-args num-args
-				     :arguments (process-function-params module ffi pass cursor type)
-				     :variadic? variadic?
-				     :storage-kind storage-kind
-				     :class-name cxx-class-name
-				     :virtual? virtual?
-				     :pure-virtual? (pure-virtual?)
-				     :static? static?
-				     :constructor? constructor?
-				     :destructor? destructor?
-				     :access *access-specifier*)
-	    (struct-declaration-methods *struct-declaration*)))))
+      (let ((return-type (process-function-return module ffi pass type))
+	    (params (process-function-params module ffi pass cursor type)))
+	(let ((method (make-method-declaration
+		       :name name
+		       :return-type return-type
+		       :mangled-name (when mangled-name
+				       (let ((cstr (#_clang_getCString mangled-name)))
+					 (when cstr
+					   (unwind-protect
+						(get-c-string cstr)
+					     #+NIL
+					     (#_clang_disposeString cstr)))))
+		       :num-args num-args
+		       :arguments params
+		       :variadic? variadic?
+		       :storage-kind storage-kind
+		       :class-name cxx-class-name
+		       :virtual? virtual?
+		       :pure-virtual? (pure-virtual?)
+		       :static? static?
+		       :constructor? constructor?
+		       :destructor? destructor?
+		       :access *access-specifier*
+		       :punt (or (not return-type) (some #'(lambda (argument)
+							     (not (function-argument-type argument)))
+							 params)))))
+	  (populate-source-location cursor method)
+	  (push method
+		(struct-declaration-methods *declaration*)))))))
   
   
   
 
 
-(defmethod compute-struct-declaration ((ffi noffi) name cursor)
-  (let ((class-stack ())
-	(named-type ())
-	(*field-stack* ()))
-    (push 'noffi::decl class-stack)
-    (push '((:storage-class :typedef)) class-stack)
-    (push name named-type)
-    (visit-children cursor)
-    (when *field-stack*
-      (setf (struct-decl-fields? *struct-decl*) t)
-      (let ((struct (list (if (struct-decl-vtable-p *struct-decl*)
-			      (cons (noffi::make-declaration :name (noffi::cintern "__vfptr")
-							     :type (noffi::make-pointer-type
-								    (noffi::make-pointer-type :void)))
-				    (nreverse *field-stack*))
-			      (nreverse *field-stack*)))))
-	(push name struct)
-	(push :struct struct)
-	(push struct (cdr named-type)))
-      (push named-type class-stack)
-      (nreverse class-stack))))
 
 (defmethod compute-struct-declaration-forward-reference ((ffi noffi) name)
   (noffi::make-declaration
@@ -966,25 +2766,18 @@
 
 (defmethod process-typedef-decl ((module module) abi ffi pass cursor parent name data)
   (let ((type (#_clang_getTypedefDeclUnderlyingType cursor)))
+    (let* ((type (get-type-expression type))
+	   (typedef (ensure-type-definition name type)))
+      (populate-source-location cursor typedef)
+      (unless type
+	(setf (named-declaration-punt typedef) t)))
+    #+NIL
     (cond ((or (= (#_.kind parent) #_CXCursor_TranslationUnit)
 	       (= (#_.kind parent) #_CXCursor_Namespace))
-	   (let ((type (make-a-clang-type type)))
-	     (prog1 (ensure-type-definition name type)
-	       (maybe-intern-type type)))))))
+	   ))))
     
 
 
-(defmethod write-type-definition-as-lisp ((module module) (ffi cffi) (pass (eql 0)) cursor type name)
-  (format *lisp-file* "(cffi:defctype ~A " name)
-  (resolve-type-reference module ffi pass type)
-  (format *lisp-file* ")~%~%")
-  (values))
-
-(defmethod write-type-definition-as-lisp ((module module) (ffi noffi) (pass (eql 0)) cursor type name)
-  (format *lisp-file* "~S~%~%"
-	  (noffi::make-declaration :name (noffi::cintern name)
-				   :type (resolve-type-reference module ffi pass type)
-				   :storage-class :typedef)))
 
 
 
@@ -1004,117 +2797,230 @@
   name)
 
 
+(defun instantiate-template (abi type-expression)
+  (when (template-type-p type-expression)
+    (let* ((arguments (remove-if #'null (cddr type-expression)))
+	   (definition (get-template-definition type-expression)))
+      (if (null definition)
+	  (warn "could not find template definition for ~S" type-expression)
+	  (when (class-template-definition-p definition)
+	    (instantiate-template-1 definition abi arguments))))))
 
-(defun instantiate-template (abi typename)
-  (let ((string (symbol-name typename)))
-    (when (template-typename-p string)
-      (let* ((name (noffi::cintern (template-name string)))
-	     (arguments (mapcar #'noffi::cintern (template-arguments string)))
-	     (template (gethash (list name (length arguments)) *template-definitions*)))
-	(if (null template)
-	    (warn "could not find template definition for ~a" typename)
-	    (instantiate-template-1 template abi typename arguments))))))
 
-(defun tree-substitute (new old tree)
-  (if (null tree)
+
+(defun literal-is-of-c-type (value ctype)
+  (cond ((or (eq value '#.(noffi::cintern "true"))
+	     (eq value '#.(noffi::cintern "false")))
+	 (bool-type-p ctype))
+	(t (let* ((string (string-trim '(#\space #\tab) (symbol-name value))))
+	     (multiple-value-bind (value pos) (read-from-string string)
+	       (if (/= pos (length string))
+		   nil
+		   (cond ((integerp value) (integer-clang-type-p value ctype))
+			 ((floatp value) (float-clang-type-p value ctype))
+			 (t nil))))))))
+
+(defun literal-is-of-type (value)
+  (cond ((or (eq value '#.(noffi::cintern "true"))
+	     (eq value '#.(noffi::cintern "false"))) :bool)
+	(t (let* ((string (string-trim '(#\space #\tab) (symbol-name value))))
+	     (multiple-value-bind (value pos) (read-from-string string)
+	       (if (/= pos (length string))
+		   nil
+		   (cond ((integerp value) :integer)
+			 ((floatp value) :float)
+			 (t nil))))))))
+
+;;nullptr_t exception_ptr nested_exception exception _Num_int_base logic_error runtime_error error_category error_condition _Addr_storage error_code _System_errror _Atomic_counter_t _Ref_count_base type_info codecvt std::atomic_int std::ostream StringRef std::type_info std::stringstream std::streambuf std::streamsize pos_type off_type std:ios_base::seekdir std:ios_base::openmode clocale_t Iterator std::istream Hasher iterator const_iterator 
+
+(defmethod massage-template-argument (type-expression)
+  (if (null type-expression)
       nil
-      (let ((car (car tree)))
-	(if (consp car)
-	    (cons (tree-substitute new old car)
-		  (tree-substitute new old (cdr tree)))
-	    (if (eq old car)
-		(cons new (tree-substitute new old (cdr tree)))
-		(cons car (tree-substitute new old (cdr tree))))))))
+      (if (not (listp type-expression))
+	  type-expression
+	  (if (template-type-p type-expression)
+	      (cadr type-expression)
+	      (if (type-name-type-p type-expression)
+		  (cadr type-expression)
+		  (if (eq 'noffi::expr (car type-expression))
+		      (cadr type-expression)
+		      type-expression))))))
 
-(defun exchange (new old thing)
-  (if (consp thing)
-      (tree-substitute new old thing)
-      (if (eq old thing)
-	  new
-	  thing)))
+(defmethod instantiate-template-1 ((template class-template-definition) abi arguments)
+  (let ((key (cons (class-template-definition-name template) arguments)))
+    (format t "~&instantiating ~S" key)
+
+  (let ((new-class-decl (deep-copy-class-template-definition-to-class-declaration template arguments)))
+    (fixup-base-types new-class-decl (class-template-definition-arguments template) arguments)
+    (mapcar #'(lambda (field)
+		(fixup-field-declaration field
+					 (class-template-definition-arguments template)
+					 arguments))
+	    (class-declaration-fields new-class-decl))
+    (mapcar #'(lambda (method)
+		(fixup-method-declaration method
+					  (class-declaration-name new-class-decl)
+					  (class-template-definition-arguments template)
+					  arguments))
+	    (class-declaration-methods new-class-decl))
+    
+    (prog1 (let ((namespace (namespace-namespace template)))
+      (setf (gethash key (namespace-declarations namespace))
+	    new-class-decl)
+	     )))))
 
 (defmethod compute-template-method-declaration-mangled-name
     ((abi msvc) base-mangled-name return-type arguments)
   base-mangled-name)
 
-(defmethod make-substitutions ((field field-declaration) replacements originals &key class-name)
-  (declare (ignore class-name))
-  (loop for new in replacements
-	for old in originals
-	do (setf (field-declaration-type field)
-		 (exchange new old (field-declaration-type field))))
-  (values))
+(defun fixup-field-declaration (field template-args args)
+  (setf (field-declaration-type field)
+	(fixup-type (field-declaration-type field) template-args args))
+  field)
 
-(defmethod make-substitutions ((argument function-argument) replacements originals &key class-name)
-  (declare (ignore class-name))
-  (loop for new in replacements
-	for old in originals
-	do (setf (function-argument-type argument)
-		 (exchange new old (function-argument-type argument))))
-  (values))
-
-(defmethod make-substitutions ((method method-declaration) replacements originals &key class-name)
-  (loop for argument in (method-declaration-arguments method)
-	do (make-substitutions argument replacements originals))
-  (loop for new in replacements
-	for old in originals
-	do (setf (method-declaration-return-type method)
-		 (exchange new old (method-declaration-return-type method))))
+(defun fixup-method-declaration (method class-name template-args args)
+  
+  (setf (method-declaration-return-type method)
+	(fixup-type (method-declaration-return-type method) template-args args))
+  
+  (loop for function-argument in (method-declaration-arguments method)
+	do (setf (function-argument-type function-argument)
+		 (fixup-type (function-argument-type function-argument) template-args args)))
   (setf (method-declaration-class-name method) class-name)
+  (when (or (method-declaration-constructor? method)
+	    (method-declaration-destructor? method))
+    (setf (method-declaration-name method) nil))
+  method)
+
+(defun typename-as-const (typename)
+  (when (symbolp typename)
+    (setq typename (symbol-name typename)))
+  (noffi::cintern (concatenate 'string "const " typename)))
+
+(defmacro set-root-type (type new)
+  (let ((child (gensym)))
+    `(let ((,child (child-type ,type)))
+       (if (null ,child)
+	   (setf ,type ,new)
+	   (set-root-type-1 ,type ,child ,new)))))
+
+(defun set-root-type-1 (type child new)
+  (when (null child)
+    (error "cannot set-root-type-1."))
+  (setf (clang-type-name type) nil)
+  (if (null (child-type child))
+      (setf (child-type type) new)
+      (set-root-type-1 child (child-type child) new)))
+
+(defun fixup-type (type-expression template-args args)
+  (loop for targ in template-args
+	with fixed-type = type-expression
+	for i from 0
+	do (let ((arg (nth i args)))
+	     (destructuring-bind (template-arg-kind template-arg-name
+				  &optional maybe-default) targ
+	       ;;	       (declare (ignore template-arg-name))
+	       (if arg
+		   (when (or (type-name-type-p targ)
+			     (template-type-p targ))
+		     (setq fixed-type (type-substitute arg targ fixed-type)))
+		   (when (and (or (type-name-type-p targ)
+			      (template-type-p targ))
+			      maybe-default)
+		     (setq fixed-type
+			   (type-substitute (rest maybe-default) (list template-arg-kind template-arg-name)
+					    type-expression))))))
+	finally (return fixed-type)))
+
+#+NIL
+(defun recompose-typename (name const? reference)
+  (when (symbolp name)
+    (setq name (symbol-name name)))
+  (when const?
+    (setq name (concatenate 'string "const " name)))
+  (when reference
+    (if (eq reference :lvalue)
+	(setq name (concatenate 'string name " &"))
+	(if (eq reference :rvalue)
+	    (setq name (concatenate 'string name " &&"))
+	    (if (and (consp reference)
+		     (member :pointer reference))
+		(progn
+		  (setq name (concatenate 'string name " "))
+		  (loop repeat (length reference)
+			do (setq name (concatenate 'string name "*"))))
+		(error "~S" reference)))))
+  (noffi::cintern name))
+
+(defmethod invalidate-type-name :around ((type clang-type) (root-type clang-type))
+  (unless (eq type root-type)
+    (call-next-method)))
+
+(defmethod invalidate-type-name ((type reference-type) root-type)
+  (setf (reference-type-name type) nil)
+  (invalidate-type-name (reference-type-pointee-type type) root-type)
   (values))
 
-(defun deep-copy-method-declaration (method-declaration)
-  (let ((new (copy-method-declaration method-declaration)))
-    (when (listp (method-declaration-return-type new))
-      (setf (method-declaration-return-type new)
-	    (copy-seq (method-declaration-return-type new))))
-    (setf (method-declaration-arguments new)
-	  (mapcar #'copy-function-argument
-		  (method-declaration-arguments new)))
-    new))
-		  
+(defmethod invalidate-type-name ((type elaborated-type) root-type)
+  (setf (elaborated-type-name type) nil)
+  (when (elaborated-type-named-type type)
+    (invalidate-type-name (elaborated-type-named-type type) root-type))
+  (values))
 
-(defmethod instantiate-template-1 ((template class-template-definition) abi
-				   class-name argument-values)
-  (let* ((names (cons (class-template-definition-name template) (class-template-definition-arguments template)))
-	 (values (cons class-name argument-values))
-	 (base-types (copy-seq (class-template-definition-base-types template))))
-    (loop for name in names
-	  for value in values
-	  do (setq base-types (substitute value name base-types)))
-    (let ((fields
-	    (mapcar #'(lambda (field)
-			(make-substitutions field values names)
-			field)
-		    (mapcar #'copy-field-declaration
-			    (class-template-definition-fields template))))
-	  (methods
-	    (mapcar
-	     #'(lambda (method)
-		 (make-substitutions method values names :class-name class-name)
-		 method)
-	     (mapcar #'deep-copy-method-declaration
-		     (class-template-definition-methods template)))))
+(defmethod invalidate-type-name ((type primitive-c-type) root-type)
+  (error "primitive c type name cannot be invalidated!"))
 
-      (setf (gethash class-name *type-declarations*)
-	    (make-class-declaration :name class-name
-				    :base-types base-types
-				    :fields fields
-				    :methods methods
-				    :vtable-p (class-template-definition-vtable-p template))))))
-			 
-		     
-		     
-				    
-      
-	      
+(defmethod invalidate-type-name ((type array-vector-or-complex-type) root-type)
+  (setf (array-vector-or-complex-type-name type) nil)
+  (invalidate-type-name (array-vector-or-complex-type-element-type type) root-type)
+  (values))
 
 
-	  
 
 
-	
-    
+(defun compose-typename-2 (name &rest argument-names)
+  (break)
+  (if argument-names
+      (noffi::cintern (format nil "~A<~{~A, ~}~A>" name (butlast argument-names)
+			      (car (last argument-names))))
+      (noffi::cintern (format nil "~A<>" name))))
+  
+(defun type-substitute (new old noffi-parsed-type)
+  (if (null noffi-parsed-type)
+      nil
+      (if (consp noffi-parsed-type)
+	  (if (template-type-p noffi-parsed-type)
+	      (if (equalp old noffi-parsed-type)
+		  new
+		  (list* :template
+			 (cadr noffi-parsed-type)
+			 (type-substitute new old (cddr noffi-parsed-type))))
+	      (if (type-name-type-p noffi-parsed-type)
+		  (if (equalp old noffi-parsed-type)
+		      new
+		      noffi-parsed-type)
+		  (if (eq 'noffi::expr (car noffi-parsed-type))
+		      (if (and (consp old) (eql (cadr old) (cadr noffi-parsed-type)))
+			  new
+			  noffi-parsed-type)
+		      (if (eq :type-qualifier (car noffi-parsed-type))
+			  (list* :type-qualifier
+				 (cadr noffi-parsed-type)
+				 (type-substitute new old (cddr noffi-parsed-type)))
+			  (cons (type-substitute new old (car noffi-parsed-type))
+				(type-substitute new old (cdr noffi-parsed-type)))))))
+	  noffi-parsed-type)))
+
+(defun fixup-base-types (class-decl template-args args)
+  (setf (class-declaration-base-types class-decl)
+	(loop for type-expression in (class-declaration-base-types class-decl)
+	      collect (fixup-type type-expression template-args args))))
+
+(defun wrap-noffi-type (type-qualifiers type)
+  (cond ((null type-qualifiers) type)
+	((consp type-qualifiers)
+	 (list :type-qualifier (pop type-qualifiers) (wrap-noffi-type type-qualifiers type)))))
+			    
 
 (defun compute-cursor-kind-processor (kind)
   (cond ((= kind #.#_CXCursor_UnexposedDecl) #'process-unexposed-decl)
@@ -1421,23 +3327,6 @@
 
 
 
-#+NIL
-(defmethod process-template-ref ((module module) abi ffi pass cursor parent name data)
-  (let ((num-args (#_clang_Cursor_getNumTemplateArguments cursor)))
-    (loop for i from 0 below num-args
-	  do (let ((kind (#_clang_Cursor_getTemplateArgumentKind cursor i)))
-	       (cond ((= kind #_CXTemplateArgumentKind_Null) (print "Null"))
-		     ((= kind #_CXTemplateArgumentKind_Type) (print "Type"))
-		     ((= kind #_CXTemplateArgumentKind_Declaration) (print "Declaration"))
-		     ((= kind #_CXTemplateArgumentKind_NullPtr) (print "NullPtr"))
-		     ((= kind #_CXTemplateArgumentKind_Integral) (print "Integral"))
-		     ((= kind #_CXTemplateArgumentKind_Template) (print "Template"))
-		     ((= kind #_CXTemplateArgumentKind_TemplateExpansion) (print "TemplateExpansion"))
-		     ((= kind #_CXTemplateArgumentKind_Expression) (print "Expression"))
-		     ((= kind #_CXTemplateArgumentKind_Pack) (print "Pack"))
-		     ((= kind #_CXTemplateArgumentKind_Invalid) (print "Invalid")))
-	       (let ((type (#_clang_Cursor_getTemplateArgumentType cursor i)))
-		 (print (get-type-name type)))))))
 
 (defmethod process-constructor ((module module) abi ffi pass cursor parent name data)
   (process-cxx-method module abi ffi pass cursor parent name data))
@@ -1452,135 +3341,10 @@
 	(format nil "~A::~A" class-name name)
 	(format nil "~A::~A__OL_~S" class-name name overload))))
   
-
-(defmethod write-method-wrapper-as-lisp
-    ((module module) (ffi cffi) (pass (eql 1))
-     cursor type name mangled-name lisp-name cxx-class-name lisp-class-name
-     storage-kind constructor? destructor? static? pure-virtual? override? num-args variadic?)
-  (when (eq storage-kind :external)
-    (unless variadic?
-      (princ ".")
-      (force-output)
-      (format *lisp-file* "(cffi:defcfun (~S ~A) " mangled-name lisp-name)
-      (process-function-return module ffi pass type)
-      (let ((space? nil))
-	(unless static?
-	  (format *lisp-file* " (this (:pointer (:struct ~A)))" lisp-class-name)
-	  (unless (= 0 num-args)
-	    (setq space? t)))
-	(when space?
-	  (format *lisp-file* " "))
-	(process-function-params module ffi pass cursor type)
-	(format *lisp-file* ")~%~%")))))
-
-(defmethod write-method-wrapper-as-lisp
-    ((module module) (ffi noffi) (pass (eql 1))
-     cursor type name mangled-name lisp-name cxx-class-name lisp-class-name
-     storage-kind constructor? destructor? static? pure-virtual? override? num-args variadic?)
-  (when (eq storage-kind :external)
-    (unless variadic?
-      (let ((rtype (#_clang_getResultType type)))
-	(unless (or (string= name "GetAllocatorType")
-		    (string= name "NewInstance")
-		    (string= name "xsgetn")
-		    )
-	  (princ ".")
-	  (force-output)
-	  (format *lisp-file* "~S~%~%"
-		  (noffi::make-declaration
-		   :name (noffi::cintern mangled-name)
-		   :storage-class :extern
-		   :type (noffi::make-function-type
-			  (process-function-return module ffi pass type)
-			  (append (unless static?
-				    (list (noffi::make-declaration
-					   :name '#_this
-					   :type (noffi::make-pointer-type
-						  (noffi::make-named-type
-						   (noffi::cintern cxx-class-name))))))
-				  (process-function-params module ffi pass cursor type)))))
-	  (format *lisp-file* "(cl:declaim (cl:inline ~A))~%" lisp-name)
-	  (format *lisp-file* "(cl:defun ~A (" lisp-name)
-	  (let ((space? nil))
-	    (unless static?
-	      (format *lisp-file* "this")
-	      (unless (= 0 num-args)
-		(setq space? t)))
-	    (when space?
-	      (format *lisp-file* " "))
-	    (print-param-names cursor type)
-	    (if (record-type-p rtype)
-		(format *lisp-file* ")~%  (noffi::as-lisp (noffi::c-funcall '~S "
-			(noffi::cintern mangled-name))
-		(format *lisp-file* ")~%  (noffi::as-lisp (noffi::static-c-funcall ~S "
-			(noffi::cintern mangled-name)))
-	    (let ((space? nil))
-	      (unless static?
-		(format *lisp-file* "this")
-		(unless (= 0 num-args)
-		  (setq space? t)))
-	      (when space?
-		(format *lisp-file* " "))
-	      (print-param-names cursor type)
-	      (format *lisp-file* ")))~%~%"))))))))
-
-(defmethod write-method-wrapper-as-lisp :after
-    ((module opencascade) (ffi cffi) (pass (eql 1))
-     cursor type name mangled-name lisp-name cxx-class-name lisp-class-name
-     storage-kind
-     constructor? destructor? static? pure-virtual? override? num-args variadic?)
-  (when (eq storage-kind :external)
-    (unless variadic?
-      (when *handle-type?*
-	(unless (or constructor? destructor?)
-	  (unless static?
-	    (format *lisp-file* "(cl:defun Handle_~A (" lisp-name)
-	    (format *lisp-file* "Handle_~A" lisp-class-name)
-	    (unless (= 0 num-args)
-	      (format *lisp-file* " "))
-	    (print-param-names cursor type)
-	    (format *lisp-file* ")~%")
-	    (format *lisp-file* "  (~A (cffi:mem-aref Handle_~A :pointer) " lisp-name lisp-class-name)
-	    (print-param-names cursor type)
-	    (format *lisp-file* "))~%~%")))))))
-
-(defmethod write-method-wrapper-as-lisp :after
-    ((module opencascade) (ffi noffi) (pass (eql 1))
-     cursor type name mangled-name lisp-name cxx-class-name lisp-class-name
-     storage-kind
-     constructor? destructor? static? pure-virtual? override? num-args variadic?)
-  (when (eq storage-kind :external)
-    (unless variadic?
-      (when *handle-type?*
-	(unless constructor?
-	  (unless static?
-	    (let ((rtype (#_clang_getResultType type)))
-	      (format *lisp-file* "(cl:defun Handle_~A (" lisp-name)
-	      (format *lisp-file* "Handle_~A" lisp-class-name)
-	      (unless (= 0 num-args)
-		(format *lisp-file* " "))
-	      (print-param-names cursor type)
-	      (format *lisp-file* ")~%")
-	      (if (record-type-p rtype)
-		  (format *lisp-file* "  (noffi::as-lisp (noffi::c-funcall '~S (#_.entity Handle_~A) "
-			  (noffi::cintern mangled-name) lisp-class-name)
-		  (format *lisp-file* "  (noffi::as-lisp (noffi::static-c-funcall ~S (#_.entity Handle_~A) "
-			  (noffi::cintern mangled-name) lisp-class-name))
-	      (print-param-names cursor type)
-	      (format *lisp-file* ")))~%~%"))))))))
-
-#+NIL
-(defun record-type-p (type)
-  (or (= #_CXType_Record (#_.kind type))
-      (let ((nt (#_clang_Type_getNamedType type)))
-	(when nt
-	  (= #_CXType_Record (#_.kind nt))))))
-
 (defmethod process-function-return ((module module) ffi pass type)
   (let ((return-type (#_clang_getResultType type)))
-    (let ((type (make-a-clang-type return-type)))
-      (prog1 type
-	(maybe-intern-type type)))))
+    (let ((type (get-type-expression return-type)))
+      type)))
 
 (defun process-storage-kind (cursor)
   (let ((linkage (#_clang_getCursorLinkage cursor))
@@ -1592,19 +3356,45 @@
 	    (progn
 	      (warn "Unimplemented CXLinkageKind ~S, CX_StorageClass ~S" linkage storage)
 	      nil)))))
-    
 
+(defun ensure-enum-declaration (name enum-type)
+  (let ((existing (gethash name (namespace-declarations *current-namespace*))))
+    (if existing
+	existing
+	(setf (gethash name (namespace-declarations *current-namespace*))
+	      (make-enum-declaration :name name
+				     :namespace *current-namespace*
+				     :enum-type enum-type)))))
+
+(defmethod process-enum-decl :around ((module module) abi ffi pass cursor parent name data)
+  (let ((*verbosity* 0))
+    (let ((enum-type (get-type-expression (#_clang_getEnumDeclIntegerType cursor))))
+      (let ((*declaration* (ensure-enum-declaration name enum-type)))
+	(call-next-method)))))
+
+(defmethod process-enum-decl ((module module) abi ffi pass cursor parent name data)
+  (unless (enum-declaration-constants *declaration*)
+    (visit-children cursor)))
+
+(defmethod process-translation-unit :around ((module module) abi ffi pass cursor parent name data)
+  (let ((*using-directives* ()))
+    (call-next-method)))
 
 (defmethod process-translation-unit ((module module) abi ffi pass cursor parent name data)
   (let ((*header-in-question* (symbol-name name))
 	(*overloads* (make-hash-table :test #'equalp)))
     (visit-children cursor)))
 
+(defun ensure-namespace (name)
+  (let ((existing (gethash name (namespace-declarations *current-namespace*))))
+    (if existing
+	existing
+	(setf (gethash name (namespace-declarations *current-namespace*))
+	      (make-namespace :name name :namespace *current-namespace*)))))
+
 (defmethod process-namespace :after ((module module) abi ffi pass cursor parent name data)
-  (let ((*namespace-prefix* (noffi::cintern
-			     (concatenate 'string
-					  (symbol-name *namespace-prefix*)
-					  (symbol-name name) "::"))))
+  (let ((*current-namespace* (ensure-namespace name)))
+    (populate-source-location cursor *current-namespace*)
     (visit-children cursor)))
 
 
@@ -1700,25 +3490,6 @@
 (defun get-builtin-type-noffi (kind)
   (aref *builtin-type-array* kind))
 
-(defmethod write-c-primitive-type-as-lisp ((module module) ffi pass kind)
-  (format *lisp-file* "~S" (get-builtin-type ffi kind)))
-  
-
-#+NIL
-(defmethod process-c-primitive-type ((module module) ffi pass type kind)
-  (declare (ignorable type))
-  (cond ((= kind #_CXType_Complex) (break))
-	((= kind #_CXType_Vector) (break))
-	((primitive-c-type-p kind)
-	 (write-c-primitive-type-as-lisp module ffi pass kind))))
-
-#+NIL
-(defmethod process-c-primitive-type ((module module) (ffi noffi) pass type kind)
-  (declare (ignorable type))
-  (cond ((= kind #_CXType_Complex) (break))
-	((= kind #_CXType_Vector) (break))
-	((primitive-c-type-p kind) (get-builtin-type ffi kind))))
-
 
 (defun builtin-type-p (kind)
   (<= #_CXType_FirstBuiltin kind #_CXType_LastBuiltin))
@@ -1728,157 +3499,6 @@
       (= kind #_CXType_Complex)
       (builtin-type-p kind)))
 
-#+NIL
-(defun primitive-c-type-p (kind)
-  (< 1 kind 24))
-
-#+NIL
-(defmethod write-record-reference-as-lisp ((module module) (ffi cffi) pass type name)
-  (format *lisp-file* "(:struct ~A)" (parse-edit-type-name name)))
-
-#+NIL
-(defmethod write-record-reference-as-lisp ((module module) (ffi noffi) pass type name)
-  (format *lisp-file* "~S" (noffi::make-named-type (noffi::cintern (parse-edit-type-name name)))))
-
-#+NIL
-(defmethod process-record-reference ((module module) ffi pass type)
-  (let ((name (#_clang_getTypeSpelling type)))
-    (if name
-	(progn (setq name (get-c-string (#_clang_getCString name)))
-	       (write-record-reference-as-lisp module ffi pass type name))
-	(format *lisp-file* "(error)"))))
-#+NIL
-(defmethod process-record-reference ((module module) (ffi noffi) pass type)
-  (let ((name (#_clang_getTypeSpelling type)))
-    (if name
-	(let ((cstring (#_clang_getCString name)))
-	  (setq name (get-c-string cstring))
-	  (#_clang_disposeString cstring)
-	  (let ((type-name (noffi::cintern (parse-edit-type-name name))))
-	    (pushnew type-name *type-ordering*)
-	    (noffi::make-named-type type-name)))
-	'(error))))
-#+NIL
-(defun process-enum-reference (type)
-  (let ((name (#_clang_getTypeSpelling type)))
-    (if name
-	(let ((cstring (#_clang_getCString name)))
-	  (setq name (get-c-string cstring))
-	  (#_clang_disposeString cstring)
-	  (let ((type-name (noffi::cintern (parse-edit-type-name name))))
-	    (pushnew type-name *type-ordering*)
-	    (noffi::make-named-type type-name)))
-	'(error))))
-  
-#+NIL
-(defmethod process-typedef-reference ((module module) ffi pass type)
-  (let ((typedef-def (#_clang_getTypeDeclaration type)))
-    (format *lisp-file* (process-ident module ffi pass typedef-def))))
-
-#+NIL
-(defmethod process-typedef-reference ((module module) (ffi noffi) pass type)
-  (let ((typedef-def (#_clang_getTypeDeclaration type)))
-    (let ((type-name (noffi::cintern (process-ident module ffi pass typedef-def))))
-      (pushnew type-name *type-ordering*)
-      (noffi::make-named-type type-name))))
-
-#+NIL
-(defmethod process-ident ((module module) ffi pass cursor)
-  (let ((name (#_clang_getCursorSpelling cursor)))
-    (if name
-	(progn
-	  (let ((string (get-c-string (#_clang_getCString name))))
-	    (#_clang_disposeString name)
-	    string))
-	(let ((location (#_clang_getCursorLocation cursor)))
-	  (clet ((file #_<CXFile>)
-		 (line #_<unsigned int>))
-	    (#_clang_getSpellingLocation location (c-addr-of file)
-					 (c-addr-of line) nil nil)
-	    (let* ((filename (#_clang_File_tryGetRealPathName file))
-		   (path (get-c-string (#_clang_getCString filename))))
-	      (#_clang_disposeString filename)
-	      (when (string= path "")
-		(setq filename (#_clang_getFileName file))
-		(setq path (get-c-string (#_clang_getCString filename)))
-		(#_clang_disposeString filename))
-	      (pathname-name path)))))))
-
-	      
-	      
-		    
-					 
-	      
-    
-  
-#+NIL
-(defun process-array (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-incomplete-array (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-function-proto (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-objc-object-pointer (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-objc-id (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-objc-sel (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-objc-type-param (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-objc-class (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-block-pointer (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-ext-vector (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-function-no-proto (type)
-  (declare (ignorable type)))
-#+NIL
-(defun process-variable-array (type)
-  (declare (ignorable type)))
-#+NIL
-(defmethod get-pointee-type :around ((module opencascade) ffi pass type)
-  (let ((pointee-type (#_clang_getPointeeType type)))
-    (when pointee-type
-      (let* ((name (#_clang_getTypeSpelling pointee-type)))
-	(when name
-	  (setq name (get-c-string (#_clang_getCString name)))
-	  ;;(unless (or (string= name "Standard_OStream")
-	;;	      (string= name "Standard_SStream"))
-	    (call-next-method))))));;)
-#+NIL
-(defmethod get-pointee-type ((module module) ffi pass type)
-  (let ((pointee-type (#_clang_getPointeeType type)))
-    (when pointee-type
-      (when (= (#_.kind pointee-type) #_CXType_Unexposed)
-	(let ((canonical-type (#_clang_getCanonicalType type)))
-	  (when canonical-type
-	    (if (/= (#_.kind canonical-type) #_CXType_Invalid)
-		(setq pointee-type canonical-type)
-		(let ((name (#_clang_getTypeSpelling type)))
-		  (warn "libclang unexposed type: ~S" (get-c-string (#_clang_getCString name)))
-		  (#_clang_disposeString name)
-		  (setf (#_.kind pointee-type) #_CXType_Void)))))
-	pointee-type))))
-
-(defun parse-edit-type-name (typename)
-  (let ((present (search "const " typename)))
-    (when (eq 0 present)
-      (setq typename (subseq typename 6)))
-    (setq typename (string-trim '(#\&) typename))
-    (setq typename (typename-sanity typename))
-    (string-trim '(#\Space) typename)))
 
 (defun template-typename-p (typename)
   (when (symbolp typename)
@@ -1887,6 +3507,7 @@
 	(pos2))
     (and (setq pos1 (position #\< typename))
 	 (setq pos2 (position #\> typename :from-end t))
+	 (= pos2 (1- (length typename)))
 	 (< pos1 pos2))))
 
 (defun namespaced-typename-p (typename)
@@ -1915,15 +3536,16 @@
   (let ((raw-arguments (template-raw-arguments typename)))
     (when raw-arguments
       (mapcar #'(lambda (arg)
-		  (string-trim '(#\space) arg))
+		  (noffi::cintern (string-trim '(#\space) arg)))
 	      (uiop/utility:split-string raw-arguments :separator '(#\,))))))
 
 (defun template-name (typename)
   (when (symbolp typename)
     (setq typename (symbol-name typename)))
   (when (template-typename-p typename)
-    (subseq typename 0 (position #\< typename))))
+    (noffi::cintern (subseq typename 0 (position #\< typename)))))
 
+#+NIL
 (defun typename-sanity (typename)
   (setq typename (string-trim '(#\Space) typename))
   (when (template-typename-p typename)
@@ -1931,6 +3553,7 @@
       (pushnew typename *template-types* :test #'string=)))
   typename)
 
+#+NOTYET
 (defun lispify-typename (typename)
   (when (symbolp typename)
     (setq typename (copy-seq (symbol-name typename))))
@@ -1950,75 +3573,11 @@
 							  (mapcar #'typename-sanity arguments)))))))
   (noffi::cintern typename))
 
-#+NIL
-(defmethod write-pointer-type-as-lisp ((module module) (ffi cffi) pass pointee-type)
-  (format *lisp-file* "(:pointer ")
-  (resolve-type-reference module ffi pass pointee-type)
-  (format *lisp-file* ")"))
-#+NIL
-(defmethod write-pointer-type-as-lisp ((module module) (ffi cffi) pass (pointee-type (eql nil)))
-  (format *lisp-file* "~S" (noffi::make-pointer-type :void)))
 
 (defun equal-types (a b)
   (or (not (= 0 (#_clang_equalTypes a b)))
       (eq (get-type-name a) (get-type-name b))))
 
-#+NIL
-(defmethod resolve-pointer-type-reference ((module module) (ffi cffi) pass type)
-  (let* ((pointee-type (get-pointee-type module ffi pass type)))
-    (if (equal-types pointee-type type)
-	(format *lisp-file* "(:pointer ~S)" (get-type-name pointee-type))
-	(write-pointer-type-as-lisp module ffi pass pointee-type))))
-#+NIL
-(defmethod resolve-pointer-type-reference ((module module) (ffi noffi) pass type)
-  (let* ((pointee-type (get-pointee-type module ffi pass type)))
-    (if (null pointee-type)
-	(noffi::make-pointer-type :void)
-	(if (equal-types pointee-type type)
-	    (let ((type-name (get-type-name pointee-type)))
-	      (pushnew type-name *type-ordering*)
-	      (noffi::make-pointer-type type-name))
-	    (noffi::make-pointer-type (resolve-type-reference module ffi pass pointee-type))))))
-
-#+NIL
-(defmethod write-reference-type-as-lisp :around ((module module) (ffi cffi) pass (name (eql nil)))
-  (format *lisp-file* ":pointer"))
-#+NIL
-(defmethod write-reference-type-as-lisp :around ((module module) (ffi cffi) pass (name (eql nil)))
-  (format *lisp-file* "~S" (noffi::make-pointer-type :void)))
-#+NIL
-(defmethod write-reference-type-as-lisp :around ((module opencascade) ffi pass name)
-  ;;(if (or (string= name "Standard_OStream")
-;;	  (string= name "Standard_SStream"))
-  ;;    (write-reference-type-as-lisp module ffi pass nil)
-      (call-next-method));;)  
-#+NIL
-(defmethod write-reference-type-as-lisp ((module module) (ffi cffi) pass name)
-  (setq name (parse-edit-type-name name))
-  (if (gethash name *structs*)
-      (format *lisp-file* "(:struct ~A)" name)
-      (format *lisp-file* "~A" name)))
-
-#+NIL
-(defmethod resolve-reference-type-reference ((module module) (ffi cffi) pass type)
-  (let* ((name (#_clang_getTypeSpelling type))
-	 (cstring (#_clang_getCString name)))
-    (setq cstring (when cstring (get-c-string cstring)))
-    (setq cstring (parse-edit-type-name cstring))
-    (write-reference-type-as-lisp module ffi pass cstring)))
-
-#+NIL
-(defmethod resolve-reference-type-reference ((module module) (ffi noffi) pass type)
-  (let* ((name (#_clang_getTypeSpelling type))
-	 (cstring (#_clang_getCString name)))
-    (setq cstring (when cstring (get-c-string cstring)))
-    (setq cstring (parse-edit-type-name cstring))
-    (let ((type-name (noffi::cintern cstring)))
-      (pushnew type-name *type-ordering*)
-      (noffi::make-pointer-type (noffi::make-named-type type-name)))))
-
-(defvar *depth* 0)
-(defvar *stacky* nil)
 
 (defun get-type-name (type)
   (let ((name (#_clang_getTypeSpelling type)))
@@ -2028,140 +3587,235 @@
 	  (unwind-protect (noffi::cintern (get-c-string cstring))
 	    #+NIL
 	    (#_clang_disposeString cstring)))))))
+
+(defun get-type-expression (type)
+  (let* ((name (get-type-name type))
+	 (noffi-type (get-type-expression-from-string name)))
+    (if noffi-type
+	noffi-type
+	(progn;; (print (coerce (symbol-name name) '(simple-array character (*))))
+	  (to-noffi-type (make-a-clang-type type))))))
+
+(defun get-type-expression-from-string (name)
+  (let ((result nil))
+    (catch 'foo
+      ;;(print (coerce (symbol-name name) '(simple-array character (*))))
+      (handler-bind ((noffi::noffi-parsing-error #'(lambda (c)
+						     (declare (ignore c))
+						     (throw 'foo nil))))
+	(let (#+NIL(*resolver-chain* (list #'(lambda (symbol)
+					  (when (stringp symbol)
+					    (setq symbol (noffi::cintern symbol)))
+					  (get-decl symbol (namespace-qualifiers *current-namespace*))))))
+	  (setq result (noffi::parse-type (coerce (symbol-name name) '(simple-array character (*)))))))
+
+      (let* ((identifier (get-identifier result)))
+
+	(let ((resolution (resolve identifier *current-namespace*)))
+	
+	  (unless (equalp identifier resolution)
+	    (setq result (type-substitute resolution identifier result))
+	    )))
+      
+      result
+      
+      )))
+
+(defun template-type-p (type-expression)
+  (and (consp type-expression) (eq :template (car type-expression))))
+
+(defun qualified-type-p (type-expression)
+  (and (consp type-expression) (eq :qualified (car type-expression))))
+
+(defun unqualified-type-p (type-expression)
+  (and (consp type-expression) (eq :unqualified (car type-expression))))
+
+(defun type-name-type-p (type-expression)
+  (and (consp type-expression) (eq :type-name (car type-expression))))
+
+(defun lvalue-ref-type-p (type-expression)
+  (and (consp type-expression) (eq :lvalue-reference (car type-expression))))
+
+(defun rvalue-ref-type-p (type-expression)
+  (and (consp type-expression) (eq :rvalue-reference (car type-expression))))
+
+(defun pointer-type-expr-p (type-expression)
+  (and (consp type-expression) (eq :pointer (car type-expression))))
+
+(defun pointerish-type-p (type-expression)
+  (or (pointer-type-expr-p type-expression)
+      (lvalue-ref-type-p type-expression)
+      (rvalue-ref-type-p type-expression)))
+
+(defun type-qualifier-type-p (type-expression)
+  (and (consp type-expression) (eq :type-qualifier (car type-expression))))
+
+(defun struct-type-p (type-expression)
+  (and (consp type-expression) (eq :struct (car type-expression))))
+
+(defun union-type-p (type-expression)
+  (and (consp type-expression) (eq :union (car type-expression))))
+
+(defun array-type-expr-p (type-expression)
+  (and (consp type-expression) (eq :array (car type-expression))))
+
   
-#+NIL
-(defmethod resolve-type-reference ((module module) ffi pass type)
-  (if (> *depth* 5)
-      (break "~S" *stacky*)
-      (let ((*depth* (1+ *depth*)))
-	(let* ((kind (#_.kind type))
-	       (type-kind-name (#_clang_getTypeKindSpelling kind)))
-	  (unwind-protect
-	       (if (primitive-c-type-p kind)
-		   (process-c-primitive-type module ffi pass type kind)
-		   (progn
-		     ;;(print kind)
-		     (cond ((= kind #_CXType_Pointer)
-			    (let ((*stacky* (cons :pointer *stacky*)))
-			      (resolve-pointer-type-reference module ffi pass type)))
-			   ((= kind #_CXType_LValueReference)
-			    (let ((*stacky* (cons :lvalueref *stacky*)))
-			      (resolve-reference-type-reference module ffi pass type)))
-			   ((= kind #_CXType_RValueReference)
-			    (let ((*stacky* (cons :rvalueref *stacky*)))
-			      (resolve-reference-type-reference module ffi pass type)))
-			   ((= kind #_CXType_Elaborated)
-			    (let ((*stacky* (cons :elaborated *stacky*)))
-			      (let ((named-type (#_clang_Type_getNamedType type)))
-				(if (equal-types named-type type)
-				    (let ((type-name (get-type-name named-type)))
-				      (pushnew type-name *type-ordering*)
-				      type-name)
-				    (resolve-type-reference
-				     module ffi pass named-type)))))
-			   ((= kind #_CXType_Record)
-			    (let ((*stacky* (cons :record *stacky*)))
-			      (process-record-reference module ffi pass type)))
-			   ((= kind #_CXType_Enum)
-			    (process-enum-reference type))
-			   ((= kind #_CXType_Typedef)
-			    (let ((*stacky* (cons :typedef *stacky*)))
-			      (process-typedef-reference module ffi pass type)))
-			   ((= kind #_CXType_ConstantArray)
-			    (process-array type))
-			   ((= kind #_CXType_IncompleteArray)
-			    (process-incomplete-array type))
-			   ((= kind #_CXType_FunctionProto)
-			    (process-function-proto type))
-			   ((= kind #_CXType_ObjCObjectPointer)
-			    (process-objc-object-pointer type))
-			   ((= kind #_CXType_ObjCId)
-			    (process-objc-id type))
-			   ((= kind #_CXType_ObjCSel)
-			    (process-objc-sel type))
-			   ((= kind #_CXType_ObjCTypeParam)
-			    (process-objc-type-param type))
-			   ((= kind #_CXType_ObjCClass)
-			    (process-objc-class type))
-			   ((= kind #_CXType_BlockPointer)
-			    (process-block-pointer type))
-			   ((= kind #_CXType_ExtVector)
-			    (process-ext-vector type))
-			   ((= kind #_CXType_FunctionNoProto)
-			    (process-function-no-proto type))
-			   ((= kind #_CXType_VariableArray)
-			    (process-variable-array type))
-			   ((= kind #_CXType_Unexposed)
-			    (let ((thetype type))
-			      (let ((canonical-type (#_clang_getCanonicalType type)))
-				(when canonical-type
-				  (if (/= (#_.kind canonical-type) #_CXType_Invalid)
-				      (setq thetype canonical-type)
-				      (let ((name (#_clang_getTypeSpelling type)))
-					(warn "libclang unexposed type: ~S" (get-c-string (#_clang_getCString name)))
-					(#_clang_disposeString name)
-					(setf (#_.kind type) #_CXType_Void)))))
-			      (let ((*stacky* (cons :unexposed *stacky*)))
-				(if (equal-types type thetype)
-				    (noffi::cintern "unexposed")
-				    (resolve-type-reference module ffi pass thetype)))))
-			   (t (warn "Error: reference type ~S is not implemented." (get-c-string (#_clang_getCString type-kind-name)))))))
-	    (#_clang_disposeString type-kind-name))))))
-	
-    
 
-	
-    
+(defun valid-identifier-type-p (type-expression)
+  (or (keywordp type-expression)
+      (type-name-type-p type-expression)
+      (template-type-p type-expression)
+      (struct-type-p type-expression)
+      (union-type-p type-expression)))
 
-#+NIL
-(defmethod process-arg-type ((module module) ffi pass type)
-  (let ((kind (#_.kind type)))
-    (cond ((or (= kind #_CXType_ConstantArray)
-	       (= kind #_CXType_VariableArray)
-	       (= kind #_CXType_IncompleteArray))
-	   (let ((element-type (#_clang_getArrayElementType type)))
-	     (format *lisp-file* "(:pointer ")
-	     (resolve-type-reference module ffi pass element-type)
-	     (format *lisp-file* ")")))
-	  (t (resolve-type-reference module ffi pass type)))))
+(defun resolve (identifier namespace)
+  (cond ((keywordp identifier) identifier)
+	((type-name-type-p identifier)
+	 (let ((result (or (resolve-type-name (cadr identifier) namespace)
+			   (cadr identifier))))
+	   ;; this nonsense is because resolve-type-name doesn't return uniform results!
+	   (cond ((keywordp result)
+		  result)
+		 ((atom result)
+		  (list :type-name result))
+		 ((eq (car result) :qualified)
+		  (list :type-name result))
+		 (t result))))
+	((template-type-p identifier)
+	 (list* :template (or (resolve-template-name (cadr identifier) namespace)
+			      (cadr identifier))
+		(mapcar #'(lambda (id)
+			    (resolve-template-argument id namespace))
+			(cddr identifier))))
+	(t identifier)))
 
-(defun uninstantiated-template-p (typename)
-  (let ((entry (gethash typename *types*)))
-    (and (unexposed-type-p entry)
-	 (template-typename-p typename)
-	 typename)))
+(defun qualify-name (unqualified-name namespace &key (template-p nil))
+  (do ((ns namespace (namespace-namespace ns)))
+      ((null ns) nil)
+    (let ((decl
+	    (loop for name in (butlast (cdr unqualified-name))
+		  with decl = ns
+		  do (setq decl (when (namespace-p decl)
+				  (gethash name (namespace-declarations decl))))
+		     (unless decl
+		       (return nil))
+		  finally (return (when (namespace-p decl)
+				    ;; need to fix: when decl is a typedef,
+				    ;; typedef resolves to another type
+				    ;; this other type might have a decl
+				    ;; or it could be a template needing instantiation
+				    ;; so I guess we would have to instantiate template here
+				    ;; to avoid an unqualfied name
+				    (gethash (first (last unqualified-name))
+					     (if template-p
+						 (namespace-template-definitions decl)
+						 (namespace-declarations decl))))))))
+      (when decl
+	(return (if (type-alias-p decl)
+		    (type-alias-type decl)
+		    (let ((qualifiers (namespace-qualifiers (named-declaration-namespace decl))))
+		      (if qualifiers
+			  (append (list :qualified)
+				  qualifiers
+				  (last unqualified-name))
+			  (list :qualified (cadr unqualified-name))))))))))
 
-(defun maybe-intern-type (type)
-  (unless (class-template-definition-p *struct-declaration*)
-    (let ((root-type (root-type type)))
-      (unless (primitive-c-type-p root-type)
-	(let ((type-name (clang-type-name root-type)))
-	  (let ((existing (gethash type-name *types*)))
-	    (when (and existing (elaborated-type-p existing) (or (typedef-type-p root-type)
-								 (record-type-p root-type)))
-	      ;; prefer record types and typedef-types over elaborated-types
-	      (setf (gethash type-name *types*) root-type))
-	    (when (and existing (unexposed-type-p existing) (or (typedef-type-p root-type)
-								(record-type-p root-type)
-								(elaborated-type-p root-type)))
-	      (setf (gethash type-name *types*) root-type))
-	    (unless existing
-	      (setf (gethash type-name *types*) root-type)
-	      (push type-name *type-ordering*))))))))
+(defun resolve-type-name (name-or-qualified-name namespace)
+  (cond ((qualified-type-p name-or-qualified-name)
+	 (let ((qualified-name (rest name-or-qualified-name)))
+	   (let ((decl (get-decl (first (last qualified-name))
+				 (butlast qualified-name))))
+	     (if (type-alias-p decl)
+		 (type-alias-type decl)
+		 name-or-qualified-name))))
+
+	((unqualified-type-p name-or-qualified-name)
+	 (qualify-name name-or-qualified-name namespace))
+
+	((symbolp name-or-qualified-name)
+	 (qualify-name (list :unqualified name-or-qualified-name) namespace))
+
+	(t (warn "unexpected name in resolve-type-name: ~S" name-or-qualified-name)
+	   name-or-qualified-name)
+		  
+	#+NOTNOW ;; todo: move into qualify-name
+	(t (let ((name name-or-qualified-name))
+	     ;;(print name)
+	     (or (loop for ns-name in *using-directives*
+		       do (let ((ns (gethash ns-name (namespace-declarations *global-namespace*))))
+			    (when ns
+			      (let ((decl (gethash name (namespace-declarations ns))))
+				(when decl
+				  (if (type-alias-p decl)
+				      (return (type-alias-type decl))
+				      (return (list :qualified ns-name name)))))))
+		       finally (return nil))
+		 (do ((ns namespace (namespace-namespace ns)))
+		     ((null ns) nil)
+		   (let ((decl (gethash name (namespace-declarations ns))))
+		     (when decl
+		       (return
+			 
+			 (if (type-alias-p decl)
+			     (type-alias-type decl)
+			     #+NIL
+			     (let ((result (type-alias-type decl)))
+			       (let* ((identifier (get-identifier result)))
+				 (let ((resolution (resolve identifier *current-namespace*)))
+				   (unless (equalp identifier resolution)
+				     (setq result (type-substitute resolution identifier result))
+				     )))					   
+			       (print result))
+			     (let ((qualifiers (namespace-qualifiers ns)))
+			       (if qualifiers
+				   (append (list :qualified)
+					   qualifiers
+					   (list name-or-qualified-name))
+				   name-or-qualified-name))))))))))))
+
+(defun resolve-template-name (name-or-qualified-name namespace)
+  (cond ((qualified-type-p name-or-qualified-name) name-or-qualified-name)
+	((unqualified-type-p name-or-qualified-name)
+	 (qualify-name name-or-qualified-name namespace :template-p t))
+	((symbolp name-or-qualified-name)
+	 (qualify-name (list :unqualified name-or-qualified-name) namespace :template-p t))
+	(t (do ((ns namespace (namespace-namespace ns)))
+	       ((null ns) nil)
+	     (let ((decl (gethash name-or-qualified-name (namespace-declarations ns))))
+	       (when decl
+		 (return (let ((qualifiers (namespace-qualifiers ns)))
+			   (if qualifiers
+			       (append (list :qualified)
+				       qualifiers
+				       (list name-or-qualified-name))
+			       name-or-qualified-name)))))))))
+
+(defun resolve-template-argument (identifier namespace)
+  (cond ((keywordp identifier) identifier)
+	((consp identifier)
+	 (cond ((type-name-type-p identifier)
+		(list :type-name
+		      (or (resolve-type-name (cadr identifier) namespace)
+			  (cadr identifier))))
+	       ((eq (car identifier) 'noffi::expr)
+		(let ((resolved (resolve-type-name (cadr identifier) namespace)))
+		  (cond ((consp resolved)
+			 resolved)
+			(t (if resolved
+			       (list :type-name resolved)
+			       identifier)
+			   ))))))
+	(t identifier)))
+		    
+
+
+
+
+
 
 (defmethod process-arg-type ((module module) (ffi noffi) pass type)
-  (let ((type (make-a-clang-type type)))
-    (prog1 type
-      (maybe-intern-type type)))
-  #+NIL
-  (let ((kind (#_.kind type)))
-    (cond ((or (= kind #_CXType_ConstantArray)
-	       (= kind #_CXType_VariableArray)
-	       (= kind #_CXType_IncompleteArray))
-	   (let ((element-type (#_clang_getArrayElementType type)))
-	     (list :array
-		   (resolve-type-reference module ffi pass element-type))))
-	  (t (resolve-type-reference module ffi pass type)))))
+  (let ((type (get-type-expression type)))
+    type))
 
 (defmethod process-function-params ((module module) ffi pass cursor type)
   (let ((num-args (#_clang_getNumArgTypes type)))
@@ -2199,7 +3853,7 @@
   "~/OCCT/include/")
 
 (defvar *opencascade-source-directory*
-  "~/OCCT/src/")
+  "c:/Users/awolven/OCCT/src/")
 
 (defun opencascade-module-directories ()
   (mapcar #'(lambda (pathname)
@@ -2227,14 +3881,15 @@
   (list "Mmgt"
 	"Standard"
 	"gp"
-	#+NIL
-	(
+
 	"NCollection"
 	"TCollection"
 	"TColStd"
 	"TColgp"
 	"TobAbs"
 	"TopoDS"
+
+	#+NIL(
 	"TopTools"
 	"TopLoc"
 	"Poly"
@@ -2278,7 +3933,9 @@
 	"Geom2dAdaptor"
 	"Adaptor3d"
 	"GeomAdaptor"
-	"CPnts")))
+	"CPnts"))
+  )
+  
 
 (defun opencascade-module-ordering ()
   (let ((ordering (copy-list *preferred-opencascade-module-ordering*))
@@ -2310,6 +3967,8 @@
   (concatenate 'string "~/cxxbinder/oc-" #+win32 "windows" #+darwin "darwin" #+linux "linux"
 					 "-" (ffi-name ffi) ".lisp"))
 
+
+#+NIL  
 (defmethod reinitialize-generator :around ((module module) ffi)
   (clrhash *structs*)
   (clrhash *typedefs*)
@@ -2317,6 +3976,7 @@
   (reinitialize-lisp-output-file module ffi)
   (call-next-method))
 
+#+NIL
 (defmethod reinitialize-generator ((module opencascade) ffi)
 
   (setf (gethash "Handle_Standard_Transient" *structs*) "Handle_Standard_Transient")
@@ -2325,6 +3985,7 @@
   (setf (gethash "Handle_Standard_Type" *typedefs*) "Handle_Standard_Type")
   (values))
 
+#+NIL
 (defmethod reinitialize-lisp-output-file :around ((module opencascade) ffi)
   (with-open-file (*lisp-file* (oc.lisp-filename ffi)
 			       :direction :output :if-exists :supersede
@@ -2333,13 +3994,14 @@
     (format *lisp-file* "(cl:in-package :oc)~%~%")
     (call-next-method)))
     
-
+#+NIL
 (defmethod reinitialize-lisp-output-file ((module opencascade) (ffi cffi))
   (format *lisp-file* "(cffi:defctype size_t :long-long)~%~%")
   (format *lisp-file* "(cffi:defcstruct Handle_Standard_Transient (bytes (:array :char 8)))~%~%")
   (format *lisp-file* "(cffi:defcstruct Handle_Standard_Type (bytes (:array :char 8)))~%~%")
   (values))
 
+#+NIL
 (defmethod reinitialize-lisp-output-file ((module opencascade) (ffi noffi))
   (format *lisp-file* "(noffi::noffi-syntax)~%~%")
   (print '(noffi::decl ((:storage-class :typedef)) (#_size_t :unsigned-long-long)) *lisp-file*)
@@ -2362,208 +4024,587 @@
 
 
 (defun generate-opencascade-cffi ()
-  (setq *template-types* nil)
+  ;;(setq *template-types* nil)
   (setq *module* (make-instance 'opencascade))
   (setq *abi* (make-instance 'msvc))
   (setq *ffi* (make-instance 'cffi))
   (initialize-builtin-type-array *ffi*)
   (setq *pass* 0)
-  (reinitialize-generator *module* *ffi*)
+  ;;(reinitialize-generator *module* *ffi*)
   (iterate-headers *module* *ffi* *pass*))
+  
 
 (defun generate-opencascade-noffi ()
-  (setq *template-types* nil)
-  (setq *module* (make-instance 'opencascade))
-  (setq *abi* (make-instance 'msvc))
-  (setq *ffi* (make-instance 'noffi))
-  (initialize-builtin-type-array *ffi*)
-  (setq *pass* 0)
-  (reinitialize-generator *module* *ffi*)
-  (clrhash *type-declarations*)
-  (clrhash *template-definitions*)
-  (setq *type-ordering* nil)
-  (clrhash *types*)
-  (time (iterate-headers *module* *ffi* *pass*))
-  #+NIL
-  (loop for type in *type-ordering*
-	do (when (template-typename-p (symbol-name type))
-	     (instantiate-template *abi* type)))
-  t)
+  (setq *global-namespace* (make-namespace))
+  (let ((*current-namespace* *global-namespace*))
+    ;;(setq *template-types* nil)
+    (setq *module* (make-instance 'opencascade))
+    (setq *abi* (make-instance 'msvc))
+    (setq *ffi* (make-instance 'noffi))
+    (setq *pass* 0)
+    (time (iterate-headers *module* *ffi* *pass*))
+    (setq *pass* 1)
+    (describe-pass *pass*)
+    (with-open-file (*lisp-file* (oc.lisp-filename *ffi*)
+				 :direction :output
+				 :if-exists :append
+				 :if-does-not-exist :create)
+      (multiple-value-bind (decl-list decl-table)
+	  (compute-all-dependencies)
+	(declare (ignore decl-table))
+
+	(loop for decl in decl-list
+	      do (write-type-decl decl (named-declaration-name decl)
+				  *module* *ffi* *abi* *lisp-file*))
+
+	(loop for decl in decl-list
+	      when (struct-declaration-p decl)
+		do (loop for method in (struct-declaration-methods decl)
+			 when (and (eq (method-declaration-access method) :public)
+				   (or (method-declaration-pure-virtual? method)
+				       (not (method-declaration-virtual? method))))
+			 do (write-type-decl method (named-declaration-name method)
+					     *module* *ffi* *abi* *lisp-file*)))))))
   
 
 (defmethod compute-headers-list ((module opencascade))
   (opencascade-preferred-header-file-ordering))
 
 (defmethod compute-include-arguments ((module opencascade))
-  (list "-I" "c:/Users/awolven/OCCT/include/"))
+  (apply #'append (mapcar #'(lambda (dirname)
+			      (list "-I" (concatenate 'string *opencascade-source-directory* dirname)))
+			  (opencascade-module-directories))))
 
 (defmethod describe-pass ((pass (eql 0)))
-  (format t "Pass ~S: Emitting type declarations...." pass))
+  (format t "~&Pass ~S: Gathering applicable ASTs of C++ files...." pass))
 
 (defmethod describe-pass ((pass (eql 1)))
-  (format t "Pass ~S: Defining foreign function calls...." pass))
+  (format t "~&Pass ~S: Instantiating ASTs of template types...." pass))
+
+(defmethod describe-pass ((pass (eql 2)))
+  (format t "~&Pass ~S: Emitting type declarations...." pass))
+
+(defmethod describe-pass ((pass (eql 3)))
+  (format t "~&Pass ~S: Emitting function bindings...." pass))
 
 (defmethod iterate-headers ((module opencascade) ffi pass)
   (describe-pass pass)
   (finish-output)
   (let ((includes (compute-include-arguments module)))
     (loop for file in (compute-headers-list module)
-	  do (apply #'main (namestring file) includes))))
+	  do (apply #'main (namestring file) "-D_HAS_EXCEPTIONS=0" includes))))
 
 (defun test ()
-  (setq *template-types* nil)
-  (setq *module* (make-instance 'opencascade))
-  (setq *abi* (make-instance 'msvc))
-  (setq *ffi* (make-instance 'noffi))
-  (initialize-builtin-type-array *ffi*)
-  (setq *pass* 0)
-  (clrhash *type-declarations*)
-  (clrhash *template-definitions*)
-  (setq *type-ordering* nil)
-  (clrhash *types*)
-  (reinitialize-generator *module* *ffi*)
-  (apply #'main "c:/Users/awolven/cxxbinder/test.hxx" (compute-include-arguments *module*)))
+  (setq *global-namespace* (make-namespace))
+  (let ((*current-namespace* *global-namespace*))
+    (setq *module* (make-instance 'opencascade))
+    (setq *abi* (make-instance 'msvc))
+    (setq *ffi* (make-instance 'noffi))
+    (initialize-builtin-type-array *ffi*)
+    (setq *pass* 0)
+    (apply #'main "c:/Users/awolven/cxxbinder/test.cpp"
+	   "-D_HAS_EXCEPTIONS=0"
+	   (compute-include-arguments *module*))))
+
 
 (defmethod root-type ((type clang-type))
   type)
 
+(defmethod child-type ((type clang-type))
+  nil)
+
+
+(defmethod child-type ((type pointer-type))
+  (pointer-type-pointee-type type))
+
+
+(defmethod (setf child-type) (new (type pointer-type))
+  (setf (pointer-type-pointee-type type) new))
+
+(defmethod child-type ((type reference-type))
+  (reference-type-pointee-type type))
+
+(defmethod (setf child-type) (new (type reference-type))
+  (setf (reference-type-pointee-type type) new))
+
+#+NIL
+(defmethod child-type ((type elaborated-type))
+  (elaborated-type-named-type type))
+
+#+NIL
+(defmethod (setf child-type) (new (type elaborated-type))
+  (setf (elaborated-type-named-type type) new))
+
+(defmethod child-type ((type array-vector-or-complex-type))
+  (array-vector-or-complex-type-element-type type))
+
+(defmethod (setf child-type) (new (type array-vector-or-complex-type))
+  (setf (array-vector-or-complex-type-element-type type) new))
+
+
+
+
 (defmethod root-type ((type pointer-type))
   (root-type (pointer-type-pointee-type type)))
 
-(defmethod root-type ((type lvalue-reference-type))
-  (root-type (lvalue-reference-type-pointee-type type)))
+(defmethod root-type ((type reference-type))
+  (root-type (reference-type-pointee-type type)))
 
-(defmethod root-type ((type rvalue-reference-type))
-  (root-type (rvalue-reference-type-pointee-type type)))
-
+#+NIL
 (defmethod root-type ((type elaborated-type))
   (or (and (elaborated-type-named-type type) (root-type (elaborated-type-named-type type))) type))
 
 (defmethod root-type ((type array-vector-or-complex-type))
   (root-type (array-vector-or-complex-type-element-type type)))
 
+
+
 (defun make-a-clang-type (type)
   (let* ((name (get-type-name type))
-	 (kind (#_.kind type))
-	 (struct (case kind
-		   (#.#_CXType_Invalid (make-invalid-type :name name))
-		   (#.#_CXType_Unexposed (make-unexposed-type :name name))
-		   (#.#_CXType_Void (make-void-type :name name))
-		   (#.#_CXType_Bool (make-bool-type :name name))
-		   (#.#_CXType_Char_U (make-char-u-type :name name))
-		   (#.#_CXType_UChar (make-uchar-type :name name))
-		   (#.#_CXType_Char16 (make-char16-type :name name))
-		   (#.#_CXType_Char32 (make-char32-type :name name))
-		   (#.#_CXType_UShort (make-ushort-type :name name))
-		   (#.#_CXType_UInt (make-uint-type :name name))
-		   (#.#_CXType_ULong (make-ulong-type :name name))
-		   (#.#_CXType_ULongLong (make-ulonglong-type :name name))
-		   (#.#_CXType_UInt128 (make-uint128-type :name name))
-		   (#.#_CXType_Char_S (make-char-s-type :name name))
-		   (#.#_CXType_SChar (make-schar-type :name name))
-		   (#.#_CXType_WChar (make-wchar-type :name name))
-		   (#.#_CXType_Short (make-short-type :name name))
-		   (#.#_CXType_Int (make-int-type :name name))
-		   (#.#_CXType_Long (make-long-type :name name))
-		   (#.#_CXType_LongLong (make-longlong-type :name name))
-		   (#.#_CXType_Int128 (make-int128-type :name name))
-		   (#.#_CXType_Float (make-float-type :name name))
-		   (#.#_CXType_Double (make-double-type :name name))
-		   (#.#_CXType_LongDouble (make-long-double-type :name name))
-		   (#.#_CXType_NullPtr (make-nullptr-type :name name))
-		   (#.#_CXType_Overload (make-overload-type :name name))
-		   (#.#_CXType_Dependent (make-dependent-type :name name))
-		   (#.#_CXType_ObjCId (make-objc-id-type :name name))
-		   (#.#_CXType_ObjCClass (make-objc-class-type :name name))
-		   (#.#_CXType_ObjCSel (make-objc-sel-type :name name))
-		   (#.#_CXType_Float128 (make-float128-type :name name))
-		   (#.#_CXType_Half (make-half-type :name name))
-		   (#.#_CXType_Float16 (make-float16-type :name name))
-		   (#.#_CXType_ShortAccum (make-short-accum-type :name name))
-		   (#.#_CXType_Accum (make-accum-type :name name))
-		   (#.#_CXType_LongAccum (make-long-accum-type :name name))
-		   (#.#_CXType_UShortAccum (make-ushort-accum-type :name name))
-		   (#.#_CXType_UAccum (make-uaccum-type :name name))
-		   (#.#_CXType_ULongAccum (make-ulong-accum-type :name name))
-		   (#.#_CXType_BFloat16 (make-bfloat16-type :name name))
-		   (#.#_CXType_Ibm128 (make-ibm128-type :name name))
-		   (#.#_CXType_Complex
-		    (make-complex-type :name name
+	 (const? (not (= 0 (#_clang_isConstQualifiedType type))))
+	 (volatile? (not (= 0 (#_clang_isVolatileQualifiedType type))))
+	 (restrict? (not (= 0 (#_clang_isRestrictQualifiedType type))))
+	 (qualifiers nil)
+	 (kind (#_.kind type)))
+    (when const?
+      (push :const qualifiers))
+    (when volatile?
+      (push :volatile qualifiers))
+    (when restrict?
+      (push :restrict qualifiers))
+    (case kind
+	  (#.#_CXType_Invalid (make-invalid-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Unexposed (make-unexposed-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Void (make-void-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Bool (make-bool-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Char_U (make-char-u-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UChar (make-uchar-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Char16 (make-char16-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Char32 (make-char32-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UShort (make-ushort-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UInt (make-uint-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ULong (make-ulong-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ULongLong (make-ulonglong-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UInt128 (make-uint128-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Char_S (make-char-s-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_SChar (make-schar-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_WChar (make-wchar-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Short (make-short-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Int (make-int-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Long (make-long-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_LongLong (make-longlong-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Int128 (make-int128-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Float (make-float-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Double (make-double-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_LongDouble (make-long-double-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_NullPtr (make-nullptr-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Overload (make-overload-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Dependent (make-dependent-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ObjCId (make-objc-id-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ObjCClass (make-objc-class-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ObjCSel (make-objc-sel-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Float128 (make-float128-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Half (make-half-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Float16 (make-float16-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ShortAccum (make-short-accum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Accum (make-accum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_LongAccum (make-long-accum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UShortAccum (make-ushort-accum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_UAccum (make-uaccum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ULongAccum (make-ulong-accum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_BFloat16 (make-bfloat16-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Ibm128 (make-ibm128-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Complex
+	   (make-complex-type :name name
+			      :cv-qualifiers qualifiers
+			      :element-type
+			      (let ((element-type (#_clang_getElementType type)))
+				(when element-type
+				  (make-a-clang-type element-type)))))
+	  (#.#_CXType_Pointer
+	   (make-pointer-type :name name
+			      :cv-qualifiers qualifiers
+			      :pointee-type
+			      (let ((pointee-type (#_clang_getPointeeType type)))
+				(when pointee-type
+				  (unless (equal-types type pointee-type)
+				    (make-a-clang-type pointee-type))))))
+	  (#.#_CXType_BlockPointer (make-block-pointer-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_LValueReference
+	   (make-lvalue-reference-type :name name
+				       :cv-qualifiers qualifiers
+				       :pointee-type
+				       (let ((pointee-type (#_clang_getPointeeType type)))
+					 (when pointee-type
+					   (make-a-clang-type pointee-type)))))
+	  (#.#_CXType_RValueReference
+	   (make-rvalue-reference-type :name name
+				       :cv-qualifiers qualifiers
+				       :pointee-type
+				       (let ((pointee-type (#_clang_getPointeeType type)))
+					 (when pointee-type
+					   (make-a-clang-type pointee-type)))))
+	  (#.#_CXType_Record (make-record-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Enum (make-enum-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Typedef (make-typedef-type :name name :cv-qualifiers qualifiers
+						 :canonical-type
+						 (let ((canonical-type (#_clang_getCanonicalType type)))
+						   (when canonical-type
+						     (make-a-clang-type canonical-type)))))
+	  (#.#_CXType_ObjCInterface (make-objc-interface-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_ObjCObjectPointer
+	   (make-objc-object-pointer-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_FunctionNoProto
+	   (make-function-no-proto-type :name name :cv-qualifiers qualifiers
+					:return-type
+					(let ((type (#_clang_getResultType type)))
+					  (when type
+					    (make-a-clang-type type)))
+					:argument-types
+					(loop for i from 0 below (#_clang_getNumArgTypes type)
+					      collect (let ((arg-type (#_clang_getArgType type i)))
+							(when arg-type
+							  (make-a-clang-type arg-type))))))
+	  (#.#_CXType_FunctionProto
+	   (make-function-proto-type :name name :cv-qualifiers qualifiers
+				     :return-type
+				     (let ((type (#_clang_getResultType type)))
+				       (when type
+					 (make-a-clang-type type)))
+				     
+				     :argument-types
+				     (loop for i from 0 below (#_clang_getNumArgTypes type)
+					   collect (let ((arg-type (#_clang_getArgType type i)))
+						     (when arg-type
+						       (make-a-clang-type arg-type))))))
+	  (#.#_CXType_ConstantArray
+	   (make-constant-array-type :name name
+				     :cv-qualifiers qualifiers
+				     :element-type
+				     (let ((element-type (#_clang_getElementType type)))
+				       (when element-type
+					 (make-a-clang-type element-type)))))
+	  (#.#_CXType_Vector
+	   (make-vector-type :name name
+			     :cv-qualifiers qualifiers
+			     :element-type
+			     (let ((element-type (#_clang_getElementType type)))
+			       (when element-type
+				 (make-a-clang-type element-type)))))
+				      
+	  (#.#_CXType_IncompleteArray
+	   (make-incomplete-array-type :name name
+				       :cv-qualifiers qualifiers
 				       :element-type
 				       (let ((element-type (#_clang_getElementType type)))
 					 (when element-type
 					   (make-a-clang-type element-type)))))
-		   (#.#_CXType_Pointer
-		    (make-pointer-type :name name
-				       :pointee-type
-				       (let ((pointee-type (#_clang_getPointeeType type)))
-					 (when pointee-type
-					   (unless (equal-types type pointee-type)
-					     (make-a-clang-type pointee-type))))))
-		   (#.#_CXType_BlockPointer (make-block-pointer-type :name name))
-		   (#.#_CXType_LValueReference
-		    (make-lvalue-reference-type :name name
-						:pointee-type
-						(let ((pointee-type (#_clang_getPointeeType type)))
-						  (when pointee-type
-						    (make-a-clang-type pointee-type)))))
-		   (#.#_CXType_RValueReference
-		    (make-rvalue-reference-type :name name
-						:pointee-type
-						(let ((pointee-type (#_clang_getPointeeType type)))
-						  (when pointee-type
-						    (make-a-clang-type pointee-type)))))
-		   (#.#_CXType_Record (make-record-type :name name))
-		   (#.#_CXType_Enum (make-enum-type :name name))
-		   (#.#_CXType_Typedef (make-typedef-type :name name))
-		   (#.#_CXType_ObjCInterface (make-objc-interface-type :name name))
-		   (#.#_CXType_ObjCObjectPointer
-		    (make-objc-object-pointer-type :name name))
-		   (#.#_CXType_FunctionNoProto
-		    (make-function-no-proto-type :name name))
-		   (#.#_CXType_FunctionProto (make-function-proto-type :name name))
-		   (#.#_CXType_ConstantArray
-		    (make-constant-array-type :name name
-					      :element-type
-					      (let ((element-type (#_clang_getElementType type)))
-						(when element-type
-						  (make-a-clang-type element-type)))))
-		   (#.#_CXType_Vector
-		    (make-vector-type :name name
-				      :element-type
-				      (let ((element-type (#_clang_getElementType type)))
-					(when element-type
-					  (make-a-clang-type element-type)))))
-				      
-		   (#.#_CXType_IncompleteArray
-		    (make-incomplete-array-type :name name
-						:element-type
-						(let ((element-type (#_clang_getElementType type)))
-						  (when element-type
-						    (make-a-clang-type element-type)))))
-		   (#.#_CXType_VariableArray
-		    (make-variable-array-type :name name
-					      :element-type
-					      (let ((element-type (#_clang_getElementType type)))
-						(when element-type
-						  (make-a-clang-type element-type)))))
-		   (#.#_CXType_DependentSizedArray
-		    (make-dependent-sized-array-type
-		     :name name
-		     :element-type
-		     (let ((element-type (#_clang_getElementType type)))
-		       (when element-type
-			 (make-a-clang-type element-type)))))
-		   (#.#_CXType_MemberPointer (make-member-pointer-type :name name))
-		   (#.#_CXType_Auto (make-auto-type :name name))
-		   (#.#_CXType_Elaborated
-		    (make-elaborated-type :name name
-					  :named-type
-					  (let ((named-type (#_clang_Type_getNamedType type)))
-					    (when named-type
-					      (unless (equal-types type named-type)
-						(make-a-clang-type named-type))))
-					  )))))
-    struct))
+	  (#.#_CXType_VariableArray
+	   (make-variable-array-type :name name
+				     :cv-qualifiers qualifiers
+				     :element-type
+				     (let ((element-type (#_clang_getElementType type)))
+				       (when element-type
+					 (make-a-clang-type element-type)))))
+	  (#.#_CXType_DependentSizedArray
+	   (make-dependent-sized-array-type
+	    :name name
+	    :cv-qualifiers qualifiers
+	    :element-type
+	    (let ((element-type (#_clang_getElementType type)))
+	      (when element-type
+		(make-a-clang-type element-type)))))
+	  (#.#_CXType_MemberPointer (make-member-pointer-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Auto (make-auto-type :name name :cv-qualifiers qualifiers))
+	  (#.#_CXType_Elaborated
+	   (make-elaborated-type :name name
+				 :cv-qualifiers qualifiers
+				 :named-type
+				 (let ((named-type (#_clang_Type_getNamedType type)))
+				   (when named-type
+				     (unless (equal-types type named-type)
+				       (make-a-clang-type named-type)))))))
+    #+NIL
+    (if (template-typename-p name)
+	(make-template-class-type :name (template-name name) :arguments (template-arguments name)
+				  :cv-qualifiers qualifiers)
+	)))
+
+;;(setq *dependencies-list* ())
+;;(setq *dependencies-table* (make-hash-table :test #'equalp))
+
+;;(setq *visited* (make-hash-table :test #'equalp))
 
 
+(defmethod compute-all-dependencies ()
+  (let* ((*visited* (make-hash-table :test #'equalp))
+	 (*dependencies-table* (make-hash-table :test #'equalp))
+	 (goals (get-all-goal-decls))
+	 (*dependencies-list* goals))
+    (mapcar #'compute-dependencies goals)
+    #+NIL(compute-dependencies *global-namespace*)
+    (values (remove-if #'named-declaration-punt (nreverse *dependencies-list*)) *dependencies-table*)))
+
+(defun namespace-qualifiers (namespace)
+  (reverse (namespace-qualifiers-1 namespace)))
+
+(defun namespace-qualifiers-1 (namespace)
+  (when (namespace-name namespace)
+    (let ((name (namespace-name namespace)))
+      (cons name
+	  (when (namespace-namespace namespace)
+	    (namespace-qualifiers-1 (namespace-namespace namespace)))))))
+
+(defmethod compute-dependencies ((namespace namespace) &optional decl-search-path)
+  (declare (ignore decl-search-path))
+  (maphash #'(lambda (k v)
+	       (declare (ignore k))
+	       (unless (or (class-template-definition-p v)
+			   (type-alias-template-decl-p v)
+			   (type-alias-p v))
+		 (compute-dependencies v)))
+	   (namespace-declarations namespace)))
+
+(defmethod compute-dependencies ((struct struct-declaration) &optional decl-search-path)
+  (declare (ignore decl-search-path))
+  (let ((decl-search-path (namespace-qualifiers struct)))
+    (mapcar #'(lambda (type)
+		(compute-type-dependencies type decl-search-path))
+	    (struct-declaration-base-types struct))
+    (mapcar #'(lambda (type)
+		(compute-dependencies type decl-search-path))
+	    (struct-declaration-fields struct))
+    (mapcar #'(lambda (type)
+		(compute-dependencies type decl-search-path))
+	    (struct-declaration-methods struct))))
+
+(defmethod compute-dependencies ((field field-declaration) &optional decl-search-path)
+  (compute-type-dependencies (field-declaration-type field) decl-search-path))
+
+(defmethod compute-dependencies ((typedef type-definition) &optional decl-search-path)
+  (compute-type-dependencies (type-definition-type typedef) decl-search-path))
+
+(defmethod compute-dependencies ((typedef type-alias) &optional decl-search-path)
+  (compute-type-dependencies (type-alias-type typedef) decl-search-path))
+
+(defmethod compute-dependencies ((enum enum-declaration) &optional decl-search-path)
+  (declare (ignore decl-search-path)))
+
+(defmethod compute-dependencies ((function function-declaration) &optional decl-search-path)
+  (compute-type-dependencies (function-declaration-return-type function) decl-search-path)
+  (mapcar #'(lambda (type)
+	      (compute-dependencies type decl-search-path))
+	  (function-declaration-arguments function)))
+
+(defmethod compute-dependencies ((argument function-argument) &optional decl-search-path)
+  (compute-type-dependencies (function-argument-type argument) decl-search-path))
+
+(defun get-identifier (noffi-parsed-type)
+  (if (null noffi-parsed-type)
+      nil
+      (if (not (listp noffi-parsed-type))
+	  noffi-parsed-type
+	  (if (qualified-type-p noffi-parsed-type)
+	      (progn (warn "bad type spec ~S" noffi-parsed-type)
+		     (list :type-name noffi-parsed-type))
+	      (if (valid-identifier-type-p noffi-parsed-type)
+		  noffi-parsed-type
+		  (if (type-qualifier-type-p noffi-parsed-type)
+		      (get-identifier (caddr noffi-parsed-type))
+		      (get-identifier (cadr noffi-parsed-type))))))))
+
+(defun get-template-definition (type-expression)
+  (if (null type-expression)
+      nil
+      (if (not (listp type-expression))
+	  (gethash type-expression (namespace-namespace *global-namespace*))
+	  (cond ((template-type-p type-expression)
+		 (cond ((qualified-type-p (cadr type-expression))
+			(let ((qualified-name (cdadr type-expression))
+			      (namespace *global-namespace*))
+			  (loop for identifier in (butlast qualified-name)
+				do (setq namespace (gethash identifier (namespace-declarations namespace)))
+				finally (when namespace
+					  (return (gethash (first (last qualified-name))
+							   (namespace-template-definitions
+							    namespace)))))))
+		       (t (gethash (cadr type-expression)
+				   (namespace-template-definitions *global-namespace*)))))
+		(t (error "3: don't know what to do with ~S" (cadr type-expression)))))))
+
+
+
+	      
+	  
+
+(defun get-decl (noffi-identifier &optional (decl-search-path nil))
+  (flet ((search-namespaces (name)
+	   (if decl-search-path
+	       (let ((qualified-name (append decl-search-path (list name)))
+		     (namespace *global-namespace*))
+		 ;; walk it up
+		 (loop for identifier in (butlast qualified-name)
+		       do (setq namespace (gethash identifier (namespace-declarations namespace)))
+		       unless namespace
+			 do (return nil)
+		       finally (return
+				 ;; walk it back down
+				 (do ((ns namespace (namespace-namespace ns)))
+				     ((null ns))
+				   (let ((decl (gethash name
+							(namespace-declarations ns))))
+				     
+				     (when decl
+				       (unless (class-template-definition-p decl)
+					 (return decl))))))))
+	       
+	       (gethash name (namespace-declarations *global-namespace*)))))
+    
+    (if (null noffi-identifier)
+	nil
+	
+	(if (not (listp noffi-identifier))
+	    (let ((namespace *global-namespace*))
+	      (loop for identifier in decl-search-path
+		    do (setq namespace (gethash identifier (namespace-declarations namespace)))
+		    finally (when namespace
+			      (return (gethash noffi-identifier (namespace-declarations namespace))))))
+	    
+	    (cond ((type-name-type-p noffi-identifier)
+		   (cond ((qualified-type-p (cadr noffi-identifier))
+			  (let ((qualified-name (cdadr noffi-identifier))
+				(namespace *global-namespace*))
+			    (loop for identifier in (butlast qualified-name)
+				  do (setq namespace (gethash identifier
+							      (namespace-declarations namespace)))
+				  unless namespace
+				    do (return nil)
+				  finally (return (let ((decl
+							  (gethash (first (last qualified-name))
+								   (namespace-declarations namespace))))
+						    (when decl
+						      (unless (class-template-definition-p decl)
+							decl)))))))
+			 (t (search-namespaces (cadr noffi-identifier)))))
+		  
+		  ((template-type-p noffi-identifier)
+		   
+		   (if (qualified-type-p (cadr noffi-identifier))
+		       (let ((qualified-name (cdadr noffi-identifier))
+			     (arguments (cddr noffi-identifier))
+			     (namespace *global-namespace*))
+			 (loop for identifier in (butlast qualified-name)
+			       do (setq namespace (gethash identifier (namespace-declarations namespace)))
+			       unless namespace
+				 do (return nil)
+			       finally (return
+					 (let ((decl
+						 (gethash (list* (first (last qualified-name))
+								 arguments)
+							  (namespace-declarations namespace))))
+					   (when decl
+					     (unless (class-template-definition-p decl)
+					       decl))))))
+		     
+		       (let ((name (cadr noffi-identifier))
+			     (arguments (cddr noffi-identifier)))
+			 (search-namespaces (list* name arguments)))))
+
+		  (t (search-namespaces noffi-identifier)))))))
+
+(defun primitive-cxx-type-p (identifier)
+  (or (keywordp identifier)
+      (and (type-name-type-p identifier)
+	   (or (eql (cadr identifier) 'noffi-c::|bool|)
+	       (eql (cadr identifier) 'noffi-c::|size_t|)
+	       (eql (cadr identifier) 'noffi-c::|wchar_t|)
+	       (eql (cadr identifier) 'noffi-c::|char16_t|)
+	       (eql (cadr identifier) 'noffi-c::|char32_t|)
+	       (eql (cadr identifier) 'noffi-c::|uintptr_t|)
+	       (eql (cadr identifier) 'noffi-c::|string|)
+	       (eql (cadr identifier) 'noffi-c::|_m128|)
+	       (eql (cadr identifier) 'noffi-c::|_m128i|)
+	       (eql (cadr identifier) 'noffi-c::|_m128d|)
+	       (eql (cadr identifier) 'noffi-c::|_m512|)
+	       (eql (cadr identifier) 'noffi-c::|_m512i|)
+	       (eql (cadr identifier) 'noffi-c::|_m512d|)))
+      (and (union-type-p identifier)
+	   (or (eql (cadr identifier) 'noffi-c::|__m128|)
+	       (eql (cadr identifier) 'noffi-c::|__m128i|)
+	       (eql (cadr identifier) 'noffi-c::|__m512|)
+	       (eql (cadr identifier) 'noffi-c::|__m512i|)))))
+
+
+
+(defun compute-type-dependencies (type-expression &optional (decl-search-path nil))
+  (let ((identifier (get-identifier type-expression)))
+
+    (unless (primitive-cxx-type-p identifier)
+
+      (when (atom identifier)
+	(setq identifier (list :type-name identifier)))
+
+      (unless (valid-identifier-type-p identifier)
+	(break "invalid identifier: ~S" identifier))
+    
+      (unless (gethash identifier *visited*)
+
+	(let ((existing (gethash identifier *dependencies-table*)))
+	  (unless existing
+	    (setf (gethash identifier *visited*) t)
+	    
+	    (flet ((process (decl)
+		     (compute-dependencies decl)
+		     (setf (gethash identifier *dependencies-table*) decl)
+		     (push decl *dependencies-list*)))
+	      
+	      (cond ((template-type-p identifier)
+		     (let ((decl (get-decl identifier decl-search-path)))
+		       (if decl
+			   (process decl)
+			   (let ((new-decl (instantiate-template *abi* identifier)))
+			     (if new-decl
+				 (process new-decl)
+				 (warn "3: could not compute dependencies for ~S" identifier))))))
+		  
+		    ((type-name-type-p identifier)
+		     (let ((decl (get-decl identifier decl-search-path)))
+		       (if decl
+			   (process decl)
+			   (warn "2: could not compute dependencies for ~S" identifier))))
+		  
+		    (t (warn "1: could not compute dependencies for ~S" identifier))))))))))
+			     
+(defun dbg-find-decl (key)
+  (dbg-find-decl-1 key *global-namespace*))
+
+(defun dbg-find-decl-1 (key namespace)
+  (let ((decl))
+    (block nil
+      (maphash (lambda (k v)
+		 (if (eql (type-of v) 'namespace)
+		     (setq decl (dbg-find-decl-1 key v))
+		     (when (equalp key k)
+		       (setq decl v)))
+		 (when decl (return)))
+		 
+	       (namespace-declarations namespace)))
+    decl))
+	     
+
+(defun get-all-goal-decls ()
+  (let ((headers (compute-headers-list *module*)))
+    (get-all-goal-decls-1 headers *global-namespace*)))
+
+(defun get-all-goal-decls-1 (headers namespace)
+  (let ((decls ()))
+    (maphash (lambda (k v)
+	       (declare (ignore k))
+	       (if (eql (type-of v) 'namespace)
+		   (setq decls (append decls (get-all-goal-decls-1 headers v)))
+		   (unless (or (class-template-definition-p v)
+			       (type-alias-p v))
+		     (when (member (named-declaration-file v) headers :test #'equalp)
+		       (push v decls)))))
+	     (namespace-declarations namespace))
+    decls))
