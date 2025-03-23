@@ -1,0 +1,14 @@
+(defparameter *tkxsdrawply-exports*
+  (list
+   "??_FBRepLib_PointCloudShape@@QEAAXXZ"
+   "??_FOSD_MemInfo@@QEAAXXZ"
+   "??_FStandard_OutOfMemory@@QEAAXXZ"
+   "??_FTDF_Transaction@@QEAAXXZ"
+   "??_FTransfer_FinderProcess@@QEAAXXZ"
+   "??_FTransfer_ProcessForFinder@@QEAAXXZ"
+   "?Factory@XSDRAWPLY@@SAXAEAVDraw_Interpretor@@@Z"
+   "?HasCachedMinMax@Poly_Triangulation@@QEBA_NXZ"
+   "?Paste@TDataStd_GenericEmpty@@UEBAXAEBV?$handle@VTDF_Attribute@@@opencascade@@AEBV?$handle@VTDF_RelocationTable@@@3@@Z"
+   "?Restore@TDataStd_GenericEmpty@@UEAAXAEBV?$handle@VTDF_Attribute@@@opencascade@@@Z"
+   "PLUGINFACTORY"))
+
